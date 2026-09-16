@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+#
+# nvidia-smi falso, para os testes. Reproduz as tres invocacoes que o backend
+# faz, no formato exato do binario real (capturado de uma RTX 3050):
+#
+#   -L                                          teste de vida do driver
+#   --query-gpu=index,name,gpu_bus_id           enumeracao, no init
+#   --query-gpu=<11 campos> ... -lms N          fluxo de metricas
+#   -q -d PIDS [-lms N]                         fluxo de processos
+#
+# O perfil de hardware vem de MOCK_PROFILE (ver gpu-profiles.sh). MOCK_FAIL
+# simula o driver ausente ou mudo, e MOCK_SAMPLES limita quantas amostras o
+# fluxo emite, para um teste nao depender de matar o processo.
+
+set -uo pipefail
+
+PROFILE="${MOCK_PROFILE:-nvidia_moderna}"
+SAMPLES="${MOCK_SAMPLES:-5}"
+
+# shellcheck source=/dev/null
+. "${MOCK_DIR:?MOCK_DIR nao definido}/gpu-profiles.sh"
+"profile_$PROFILE"
+
+# Falhas que o backend precisa tratar.
+case "${MOCK_FAIL:-}" in
+  driver)  printf 'NVIDIA-SMI has failed because it couldn'\''t communicate with the NVIDIA driver.\n' >&2; exit 9 ;;
+  nodevice) printf 'No devices were found\n'; exit 6 ;;
+esac
+
+want_gpu=0; want_pids=0; loop_ms=0; query=""
+for a in "$@"; do
+  case "$a" in
+    -L) printf 'GPU 0: %s (UUID: GPU-deadbeef-0000-0000-0000-000000000000)\n' "$MOCK_GPU_NAME"; exit 0 ;;
+    --query-gpu=*) want_gpu=1; query="${a#--query-gpu=}" ;;
+    -q) want_pids=1 ;;
+    -lms) loop_ms=1 ;;
+    -lms=*) loop_ms=1 ;;
+  esac
+done
+
+# Um indice fora do que existe: o binario real imprime isto no stdout e sai
+# com codigo != 0, e o backend depende desse par para distinguir GPU de recado.
+for ((i = 1; i <= $#; i++)); do
+  if [[ "${!i}" == "-i" ]]; then
+    j=$((i + 1))
+    idx="${!j:-}"
+    if [[ -n "$idx" && "$idx" != "0" ]]; then
+      printf 'No devices were found\n'; exit 6
+    fi
+  fi
+done
+
+timestamp() { date +"%Y/%m/%d %H:%M:%S.%3N" | cut -c1-23; }
+
+# --query-gpu=index,name,gpu_bus_id: a enumeracao do init.
+if (( want_gpu )) && [[ "$query" == "index,name,gpu_bus_id" ]]; then
+  printf '0, %s, %s\n' "$MOCK_GPU_NAME" "$MOCK_GPU_BUS"
+  exit 0
+fi
+
+# --query-gpu com os 11 campos: o fluxo de metricas.
+if (( want_gpu )); then
+  vfree=$(( MOCK_VRAM_TOTAL - MOCK_VRAM_USED ))
+  n=0
+  while :; do
+    printf '%s, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s\n' \
+      "$(timestamp)" "$MOCK_UTIL_GPU" "$MOCK_UTIL_MEM" \
+      "$MOCK_VRAM_TOTAL" "$MOCK_VRAM_USED" "$vfree" \
+      "$MOCK_TEMP" "$MOCK_POWER" "$MOCK_CLK_SM" "$MOCK_CLK_MEM"
+    n=$((n + 1))
+    (( loop_ms )) || break
+    (( SAMPLES > 0 && n >= SAMPLES )) && break
+    sleep 0.2
+  done
+  exit 0
+fi
+
+# -q -d PIDS: o fluxo de processos, no formato indentado do binario real.
+if (( want_pids )); then
+  n=0
+  while :; do
+    printf '\n==============NVSMI LOG==============\n\n'
+    printf 'Timestamp                                              : %s\n' "$(date +'%a %b %d %H:%M:%S %Y')"
+    printf 'Driver Version                                         : 550.00.00\n'
+    printf 'CUDA Version                                           : 12.4\n\n'
+    printf 'Attached GPUs                                          : 1\n'
+    printf 'GPU %s\n' "$MOCK_GPU_BUS"
+    printf '    Processes\n'
+    for p in "${MOCK_PROCS[@]}"; do
+      IFS='|' read -r pid ptype pname pmem <<< "$p"
+      printf '        GPU instance ID                   : N/A\n'
+      printf '        Compute instance ID               : N/A\n'
+      printf '        Process ID                        : %s\n' "$pid"
+      printf '            Type                          : %s\n' "$ptype"
+      printf '            Name                          : %s\n' "$pname"
+      printf '            Used GPU Memory               : %s MiB\n' "$pmem"
+    done
+    n=$((n + 1))
+    (( loop_ms )) || break
+    (( SAMPLES > 0 && n >= SAMPLES )) && break
+    sleep 0.2
+  done
+  exit 0
+fi
+
+exit 0

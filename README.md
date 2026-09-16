@@ -221,10 +221,24 @@ Os logs ficam na home, e não ao lado do script, para o comando instalado em
 `/usr/local` não tentar escrever num diretório do sistema — e para cada usuário
 ter os próprios. Desinstalar não apaga os CSVs.
 
+## Testes
+
+```bash
+./tests/run-tests.sh          # 96 testes, ~1min
+./tests/run-tests.sh -v amd   # filtra e mostra a saída das falhas
+```
+
+A suíte roda o monitor contra mocks — `nvidia-smi` falso e árvores de sysfs
+simuladas —, então dá o mesmo resultado numa máquina sem GPU nenhuma. Cada
+fabricante é testado em duas gerações (moderna e antiga), porque é na antiga,
+onde faltam métricas, que o contrato de colunas vazias é posto à prova.
+Detalhes em [tests/README.md](tests/README.md).
+
 ## Estrutura do código
 
 ```
 install.sh              instala/remove o comando no sistema
+tests/                  suíte de testes e mocks
 monitor.sh              entrada: carrega lib/, monta main()
 lib/
 ├── core.sh             die, run_source, FIFOs, traps, espera

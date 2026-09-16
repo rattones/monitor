@@ -83,7 +83,7 @@ intel_name() { printf 'Intel'; }
 # /sys/class/drm mas nao sao placas.
 intel_probe() {
   local c
-  for c in /sys/class/drm/card[0-9]*; do
+  for c in "$DRM_ROOT"/card[0-9]*; do
     [[ -r "$c/device/uevent" ]] || continue
     grep -qE '^DRIVER=(i915|xe)$' "$c/device/uevent" 2>/dev/null && return 0
   done
@@ -141,7 +141,7 @@ intel_init() {
   local c slot dev idx=0 hw name
   local busy memtot memused membusy temp power sclk mclk
 
-  for c in /sys/class/drm/card[0-9]*; do
+  for c in "$DRM_ROOT"/card[0-9]*; do
     [[ -r "$c/device/uevent" ]] || continue
     grep -qE '^DRIVER=(i915|xe)$' "$c/device/uevent" 2>/dev/null || continue
 

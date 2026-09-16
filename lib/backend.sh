@@ -102,6 +102,11 @@ BACKEND_ORDER=(nvidia amd intel)
 BACKEND=""        # nome do backend em uso, preenchido por backend_load
 GPU_COUNT=0       # quantas GPUs o backend encontrou, preenchido por <be>_init
 
+# Raiz do sysfs de video. Existe para os testes poderem apontar os backends que
+# leem sysfs (AMD, Intel) para uma arvore falsa, e assim exercitar hardware que
+# nao esta na maquina. Em uso normal fica no caminho real.
+DRM_ROOT="${MONITOR_DRM_ROOT:-/sys/class/drm}"
+
 # PIDs dos processos lancados pelos backends. O core encerra por estes nomes,
 # entao um backend novo so precisa preenche-los.
 GPU_SRC_PID=""; GPU_AWK_PID=""
