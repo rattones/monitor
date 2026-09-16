@@ -23,7 +23,7 @@ init_csv() {
 setup_outputs() {
   if [[ -z "$OUTPUT" ]]; then
     mkdir -p "$SCRIPT_DIR/logs" || die "nao consegui criar $SCRIPT_DIR/logs"
-    OUTPUT="$SCRIPT_DIR/logs/gpu-$(date +%Y%m%d-%H%M%S).csv"
+    OUTPUT="$SCRIPT_DIR/logs/monitor-$(date +%Y%m%d-%H%M%S).csv"
   fi
   mkdir -p "$(dirname -- "$OUTPUT")" || die "nao consegui criar $(dirname -- "$OUTPUT")"
 

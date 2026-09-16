@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 #
-# backend.sh - contrato entre o gpu-monitor e cada fabricante de GPU.
+# backend.sh - contrato entre o monitor e cada fabricante de GPU.
 #
 # Um backend e um arquivo em lib/backends/<nome>.sh que define as funcoes
 # abaixo com o prefixo do proprio nome. O carregador confere se todas existem
@@ -12,9 +12,14 @@
 # ---------------------------------------------------------------------------
 #
 # Toda funcao abaixo e obrigatoria. As de coleta recebem por variavel global
-# o que ja foi resolvido (GPU_IDX, INTERVAL, INTERVAL_MS, DURATION, OUTPUT,
+# o que ja foi resolvido (GPU_IDX, INTERVAL_MS, INTERVAL_S, DURATION, OUTPUT,
 # PROCS_OUT, PROCS_MODE e os FILTER_*), e devem usar run_source para lancar
 # processos externos - ver o comentario do exec em core.sh.
+#
+# O intervalo vem em duas formas: INTERVAL_MS (milissegundos inteiros, a
+# unidade de -i) para quem passa o valor adiante, como o -lms do nvidia-smi;
+# e INTERVAL_S (segundos com fracao) para quem cadencia dormindo, como o awk
+# do disco. Use a que evitar conversao dentro do laco de coleta.
 #
 #   <be>_probe
 #     Diz se este backend consegue rodar nesta maquina. Sem efeitos colaterais,

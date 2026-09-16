@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# gpu-monitor.sh - amostra o uso da GPU (incluindo VRAM), a VRAM por processo e
+# monitor.sh - amostra o uso da GPU (incluindo VRAM), a VRAM por processo e
 # o I/O/temperatura dos discos, gravando um CSV para cada um.
 #
 # Os tres coletores sao independentes e escolhidos por subcomando:
 #
-#   ./gpu-monitor.sh            # all: os tres (padrao)
-#   ./gpu-monitor.sh gpu        # so as metricas da GPU
-#   ./gpu-monitor.sh disk       # so o I/O de disco
-#   ./gpu-monitor.sh proc       # so a VRAM por processo
+#   ./monitor.sh            # all: os tres (padrao)
+#   ./monitor.sh gpu        # so as metricas da GPU
+#   ./monitor.sh disk       # so o I/O de disco
+#   ./monitor.sh proc       # so a VRAM por processo
 #
 # O codigo mora em lib/: cada modulo cuida de uma coisa, e o que e especifico de
 # um fabricante de GPU fica em lib/backends/<nome>.sh, atras do contrato descrito
@@ -16,7 +16,7 @@
 
 set -uo pipefail
 
-VERSION="3.0"
+VERSION="3.1"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
 
@@ -30,7 +30,7 @@ unset _m
 
 usage() {
   cat <<EOF
-gpu-monitor.sh v$VERSION - monitor de GPU/VRAM, processos e disco, em CSV
+monitor.sh v$VERSION - monitor de GPU/VRAM, processos e disco, em CSV
 
 Uso: ${0##*/} [subcomando] [opcoes]
 
@@ -41,9 +41,10 @@ Subcomandos:
   proc     So a VRAM atribuida a cada processo
 
 Opcoes comuns:
-  -i, --interval SEG   Intervalo entre amostras (padrao: 1; aceita fracao, min 0.1)
+  -i, --interval MS    Intervalo entre amostras, em milissegundos
+                       (padrao: 500; inteiro, minimo 100)
   -d, --duration SEG   Duracao total em segundos (padrao: 0 = ate Ctrl+C)
-  -o, --output ARQ     Arquivo CSV de saida (padrao: $SCRIPT_DIR/logs/gpu-AAAAMMDD-HHMMSS.csv)
+  -o, --output ARQ     Arquivo CSV de saida (padrao: $SCRIPT_DIR/logs/monitor-AAAAMMDD-HHMMSS.csv)
   -q, --quiet          Nao imprime nada na tela, so grava os CSVs
   -h, --help           Mostra esta ajuda
   -V, --version        Mostra a versao

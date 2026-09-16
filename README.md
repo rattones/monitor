@@ -1,18 +1,18 @@
-# gpu-monitor
+# monitor
 
-Amostra o uso da GPU NVIDIA — incluindo VRAM — e grava em CSV, por padrão uma
-linha por segundo. Grava também um CSV atribuindo a VRAM a cada processo, para
+Amostra o uso da GPU NVIDIA — incluindo VRAM — e grava em CSV, por padrão duas
+amostras por segundo. Grava também um CSV atribuindo a VRAM a cada processo, para
 ligar o churn de memória a quem o causa, e um CSV com leitura/escrita e
 temperatura dos discos.
 
 ## Uso
 
 ```bash
-./gpu-monitor.sh                      # 1 amostra/s até Ctrl+C
-./gpu-monitor.sh -d 300               # monitora por 5 minutos
-./gpu-monitor.sh -i 0.5 -o run.csv    # 2 amostras/s em run.csv
-./gpu-monitor.sh -p compute           # só contextos CUDA
-./gpu-monitor.sh -q -d 60 &           # coleta em segundo plano, sem saída na tela
+./monitor.sh                      # 2 amostras/s até Ctrl+C
+./monitor.sh -d 300               # monitora por 5 minutos
+./monitor.sh -i 1000 -o run.csv   # 1 amostra/s em run.csv
+./monitor.sh -p compute           # só contextos CUDA
+./monitor.sh -q -d 60 &           # coleta em segundo plano, sem saída na tela
 ```
 
 ### Subcomandos
@@ -28,26 +28,33 @@ padrão é `all` — o mesmo comportamento de sempre.
 | `proc` | só a VRAM por processo | `<saída>-procs.csv` |
 
 ```bash
-./gpu-monitor.sh disk -D nvme0n1 -d 60   # só o disco
-./gpu-monitor.sh proc -f chrome          # só os processos, filtrando
-./gpu-monitor.sh gpu -i 0.5              # só a GPU, 2 amostras/s
+./monitor.sh disk -D nvme0n1 -d 60   # só o disco
+./monitor.sh proc -f chrome          # só os processos, filtrando
+./monitor.sh gpu -i 250              # só a GPU, 4 amostras/s
 ```
 
 O subcomando vem **antes** das opções. `disk` não precisa de GPU NVIDIA: roda
 numa máquina sem `nvidia-smi`, já que lê apenas `/proc` e `/sys`.
 
+> **Mudança na v3.1:** `-i/--interval` agora recebe **milissegundos inteiros**,
+> não segundos, e o padrão passou de 1s para 500ms. Um `-i 0.5` antigo vira
+> `-i 500`; o script detecta o valor fracionário e sugere a tradução em vez de
+> só recusar.
+
 | Opção | Descrição |
 |---|---|
-| `-i, --interval SEG` | Intervalo entre amostras (padrão `1`; aceita fração, mínimo `0.1`) |
+| `-i, --interval MS` | Intervalo entre amostras, em **milissegundos** (padrão `500`; inteiro, mínimo `100`) |
 | `-d, --duration SEG` | Duração total (padrão `0` = até Ctrl+C) |
-| `-o, --output ARQ` | Arquivo CSV (padrão `logs/gpu-AAAAMMDD-HHMMSS.csv`) |
+| `-o, --output ARQ` | Arquivo CSV (padrão `logs/monitor-AAAAMMDD-HHMMSS.csv`) |
 | `-g, --gpu IDX` | Monitora só a GPU de índice `IDX` (padrão: todas) |
 | `-p, --procs MODO` | `all` (padrão) = processos de compute e gráficos; `compute` = só CUDA; `off` = não coleta |
 | `-f, --filter ALVO` | Monitora só estes processos — PID ou nome, vários por vírgula, opção repetível (ver abaixo) |
 | `-D, --disk MODO` | `all` (padrão) = todos os discos físicos; `off` = não coleta; ou uma lista (`nvme0n1`, `sda,sdb`) |
 | `-t, --top N` | Quantos processos no resumo final (padrão `5`; `0` desliga) |
 | `-q, --quiet` | Só grava os CSVs, sem imprimir na tela |
+| `-b, --backend NOME` | Força um backend de GPU (padrão: autodetecção) |
 | `-h, --help` | Ajuda |
+| `-V, --version` | Versão |
 
 Ctrl+C encerra de forma limpa: a última amostra é gravada, o resumo é exibido e
 nenhum processo fica órfão.
@@ -59,10 +66,10 @@ nenhum processo fica órfão.
 separados por vírgula, e a opção pode repetir:
 
 ```bash
-./gpu-monitor.sh -f chrome                # um nome
-./gpu-monitor.sh -f chrome,Xorg           # vários nomes
-./gpu-monitor.sh -f 1598                  # um PID
-./gpu-monitor.sh -f dota,4892 -f cinnamon # nomes e PIDs misturados
+./monitor.sh -f chrome                # um nome
+./monitor.sh -f chrome,Xorg           # vários nomes
+./monitor.sh -f 1598                  # um PID
+./monitor.sh -f dota,4892 -f cinnamon # nomes e PIDs misturados
 ```
 
 - **Nome** casa por trecho, ignorando maiúsculas: `-f steam` pega `steam` e
@@ -72,9 +79,9 @@ separados por vírgula, e a opção pode repetir:
   dá para colar o que você vê no `ps` ou no `nvidia-smi -q`:
 
   ```bash
-  ./gpu-monitor.sh -f /opt/google/chrome/chrome
-  ./gpu-monitor.sh -f "python3 train.py"
-  ./gpu-monitor.sh -f "...rack-uuid=3190708988185955192"   # nome truncado pelo nvidia-smi
+  ./monitor.sh -f /opt/google/chrome/chrome
+  ./monitor.sh -f "python3 train.py"
+  ./monitor.sh -f "...rack-uuid=3190708988185955192"   # nome truncado pelo nvidia-smi
   ```
 
   A busca na linha de comando vale só para esses alvos mais específicos. Um alvo
@@ -186,7 +193,7 @@ tempo) e reproduz o recorte do `--query-compute-apps`.
 ## Estrutura do código
 
 ```
-gpu-monitor.sh          entrada: carrega lib/, monta main()
+monitor.sh              entrada: carrega lib/, monta main()
 lib/
 ├── core.sh             die, run_source, FIFOs, traps, espera
 ├── backend.sh          contrato dos backends de GPU + autodetecção
@@ -210,8 +217,8 @@ incompleto listando o que falta, em vez de falhar no meio de uma coleta.
 O backend é escolhido por autodetecção, ou forçado com `-b/--backend`:
 
 ```bash
-./gpu-monitor.sh -b nvidia       # força um backend
-./gpu-monitor.sh --help          # lista os disponíveis
+./monitor.sh -b nvidia       # força um backend
+./monitor.sh --help          # lista os disponíveis
 ```
 
 **Estado atual:** só o backend NVIDIA coleta. AMD e Intel têm o `probe`
@@ -242,33 +249,33 @@ direto ao `nvidia-smi -q -d PIDS`.
 
 ```bash
 # pico e média de VRAM usada
-awk -F, 'NR>1 { s+=$7; if ($7>m) m=$7 } END { printf "media %.0f MiB | pico %d MiB\n", s/(NR-1), m }' logs/gpu-*.csv
+awk -F, 'NR>1 { s+=$7; if ($7>m) m=$7 } END { printf "media %.0f MiB | pico %d MiB\n", s/(NR-1), m }' logs/monitor-*.csv
 
 # amostras em que a GPU passou de 80% de uso
-awk -F, 'NR>1 && $4>80' logs/gpu-*.csv
+awk -F, 'NR>1 && $4>80' logs/monitor-*.csv
 
 # total de VRAM atribuída a processos, por amostra
-awk -F, 'NR>1 { s[$1]+=$6 } END { for (t in s) print t, s[t] }' logs/gpu-*-procs.csv | sort
+awk -F, 'NR>1 { s[$1]+=$6 } END { for (t in s) print t, s[t] }' logs/monitor-*-procs.csv | sort
 
 # acompanhar só um processo, do início ao fim
-./gpu-monitor.sh -f dota -i 0.5
+./monitor.sh -f dota -i 500
 
 # picos de I/O e temperatura por disco
 awk -F, 'NR>1 { if ($3>r[$2]) r[$2]=$3; if ($4>w[$2]) w[$2]=$4; if ($8>t[$2]) t[$2]=$8 }
          END { for (d in r) printf "%s: leitura %.1f MB/s | escrita %.1f MB/s | temp %.1f C\n", d, r[d], w[d], t[d] }' \
-    logs/gpu-*-disk.csv
+    logs/monitor-*-disk.csv
 
 # momentos em que o disco passou de 50% de utilização
-awk -F, 'NR>1 && $7>50' logs/gpu-*-disk.csv
+awk -F, 'NR>1 && $7>50' logs/monitor-*-disk.csv
 
 # a GPU esperou pelo disco? cruza util da GPU com util do disco no mesmo segundo
 awk -F, 'FNR==1 { next }
          FILENAME ~ /-disk/ { d[substr($1,1,19)] = $7; next }
          { g = substr($1,1,19); if (g in d) printf "%s  gpu %3s%%  disco %5.1f%%\n", g, $4, d[g] }' \
-    logs/gpu-*-disk.csv logs/gpu-*[0-9].csv
+    logs/monitor-*-disk.csv logs/monitor-*[0-9].csv
 
 # quem cresceu durante a coleta: primeira vs última leitura de cada PID
 awk -F, 'NR>1 { if (!(($3) in first)) first[$3]=$6; last[$3]=$6; name[$3]=$5 }
          END { for (p in last) printf "%-24s pid %-7s %+6d MiB\n", name[p], p, last[p]-first[p] }' \
-    logs/gpu-*-procs.csv | sort -k4 -n
+    logs/monitor-*-procs.csv | sort -k4 -n
 ```

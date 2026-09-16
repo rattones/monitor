@@ -61,7 +61,7 @@ resolve_disks() {
 # segunda sai linha no CSV.
 start_disk() {
   LC_ALL=C awk -v out="$DISK_OUT" -v devs="$DISK_DEVS" -v temps="$DISK_TEMPS" \
-               -v iv="$INTERVAL" -v dur="$DURATION" '
+               -v iv="$INTERVAL_S" -v dur="$DURATION" '
   function uptime(   l, a) {
     getline l < "/proc/uptime"; close("/proc/uptime")
     split(l, a, " ")

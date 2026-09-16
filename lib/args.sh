@@ -3,9 +3,9 @@
 # args.sh - subcomando, opcoes e validacao.
 
 CMD="all"         # all | gpu | disk | proc
-INTERVAL=1        # segundos entre amostras
+INTERVAL_MS=500   # milissegundos entre amostras - a unidade de -i
 DURATION=0        # 0 = roda ate Ctrl+C
-OUTPUT=""         # padrao: logs/gpu-<data>.csv
+OUTPUT=""         # padrao: logs/monitor-<data>.csv
 GPU_IDX=""        # padrao: todas as GPUs
 QUIET=0
 PROCS_MODE="all"  # all | compute | off
@@ -14,7 +14,11 @@ DISK_MODE="all"   # all | off | lista de dispositivos
 GPU_BACKEND=""    # vazio = autodeteccao
 
 WANT_GPU=0; WANT_DISK=0; WANT_PROC=0
-INTERVAL_MS=0
+
+# O intervalo em segundos, derivado de INTERVAL_MS. Quem cadencia por sleep
+# (o awk do disco) precisa de segundos com fracao; quem passa o valor adiante
+# (o -lms do nvidia-smi) usa INTERVAL_MS direto.
+INTERVAL_S=""
 
 parse_args() {
   # O subcomando, quando existe, vem primeiro. Sem ele o padrao e "all", para
@@ -29,7 +33,7 @@ parse_args() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      -i|--interval) eval "$need"; INTERVAL="$2"; shift 2 ;;
+      -i|--interval) eval "$need"; INTERVAL_MS="$2"; shift 2 ;;
       -d|--duration) eval "$need"; DURATION="$2"; shift 2 ;;
       -o|--output)   eval "$need"; OUTPUT="$2";   shift 2 ;;
       -g|--gpu)      eval "$need"; GPU_IDX="$2";  shift 2 ;;
@@ -40,7 +44,7 @@ parse_args() {
       -b|--backend)  eval "$need"; GPU_BACKEND="$2"; shift 2 ;;
       -q|--quiet)    QUIET=1; shift ;;
       -h|--help)     usage; exit 0 ;;
-      -V|--version)  printf 'gpu-monitor %s\n' "$VERSION"; exit 0 ;;
+      -V|--version)  printf 'monitor %s\n' "$VERSION"; exit 0 ;;
       all|gpu|disk|proc) die "o subcomando deve vir antes das opcoes: ${0##*/} $1 ..." ;;
       *) die "opcao desconhecida: $1 (use --help)" ;;
     esac
@@ -67,7 +71,15 @@ resolve_targets() {
 }
 
 validate_args() {
-  [[ "$INTERVAL" =~ ^[0-9]*\.?[0-9]+$ ]] || die "intervalo invalido: $INTERVAL"
+  # -i e em milissegundos inteiros. Um valor fracionario quase sempre significa
+  # que a pessoa esperava segundos ("-i 0.5"), entao a mensagem sugere a
+  # traducao em vez de so recusar o formato.
+  if [[ "$INTERVAL_MS" =~ ^[0-9]*\.[0-9]+$ ]]; then
+    local as_ms
+    as_ms=$(LC_ALL=C awk -v v="$INTERVAL_MS" 'BEGIN { printf "%d", v * 1000 }')
+    die "--interval e em milissegundos inteiros: use -i $as_ms em vez de -i $INTERVAL_MS"
+  fi
+  [[ "$INTERVAL_MS" =~ ^[0-9]+$ ]] || die "intervalo invalido: $INTERVAL_MS (milissegundos inteiros)"
   [[ "$DURATION" =~ ^[0-9]*\.?[0-9]+$ ]] || die "duracao invalida: $DURATION"
   [[ -z "$GPU_IDX" || "$GPU_IDX" =~ ^[0-9]+$ ]] || die "indice de GPU invalido: $GPU_IDX"
   [[ "$TOP_N" =~ ^[0-9]+$ ]] || die "valor invalido para --top: $TOP_N"
@@ -81,6 +93,9 @@ validate_args() {
     die "--filter so faz sentido com a coleta de processos ativa"
   fi
 
-  INTERVAL_MS=$(LC_ALL=C awk -v i="$INTERVAL" 'BEGIN { printf "%d", i * 1000 }')
-  (( INTERVAL_MS >= 100 )) || die "intervalo minimo e 0.1s"
+  (( INTERVAL_MS >= 100 )) || die "intervalo minimo e 100ms (voce pediu ${INTERVAL_MS}ms)"
+
+  # Segundos com fracao, para quem cadencia por sleep. LC_ALL=C: num locale
+  # pt_BR o %.3f sairia com virgula decimal e o "sleep 0,5" do awk falharia.
+  INTERVAL_S=$(LC_ALL=C awk -v ms="$INTERVAL_MS" 'BEGIN { printf "%.3f", ms / 1000 }')
 }

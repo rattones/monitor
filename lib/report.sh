@@ -73,8 +73,8 @@ print_banner() {
   (( WANT_PROC )) && printf 'processos em: %s (%s%s)\n' \
     "$PROCS_OUT" "$PROCS_MODE" "${FILTER_RAW:+, filtro: $FILTER_RAW}"
   (( WANT_DISK )) && printf 'disco em: %s (%s)\n' "$DISK_OUT" "${DISK_DEVS//;/, }"
-  printf 'intervalo: %ss | duracao: %s | Ctrl+C para parar\n\n' \
-    "$INTERVAL" "$( [[ "$DURATION" == 0 ]] && echo ilimitada || echo "${DURATION}s" )"
+  printf 'intervalo: %sms | duracao: %s | Ctrl+C para parar\n\n' \
+    "$INTERVAL_MS" "$( [[ "$DURATION" == 0 ]] && echo ilimitada || echo "${DURATION}s" )"
   return 0
 }
 
