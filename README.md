@@ -1,378 +1,329 @@
 # monitor
 
-Amostra o uso da GPU NVIDIA — incluindo VRAM — e grava em CSV, por padrão duas
-amostras por segundo. Grava também um CSV atribuindo a VRAM a cada processo, para
-ligar o churn de memória a quem o causa, e um CSV com leitura/escrita e
-temperatura dos discos.
+[English](README.md) · [Português](README.pt-BR.md)
 
-## Instalação
-
-```bash
-./install.sh                # para o seu usuário (~/.local), sem root
-sudo ./install.sh --system  # para todos (/usr/local)
-./install.sh --uninstall    # remove
-```
-
-Instala o comando `monitor` e as bibliotecas em `<prefixo>/lib/monitor/`. O
-executável é **copiado**, não ligado: mover ou apagar a pasta do projeto depois
-não quebra o comando. Para desenvolver — editar aqui e ver o efeito na hora —
-use `./install.sh --link`.
-
-O instalador confere a sintaxe de todos os arquivos antes de copiar, avisa se o
-diretório de destino não está no `PATH`, e recusa sobrescrever um `monitor`
-que não seja dele (a menos que você passe `--force`).
-
-Sem instalar, o script roda direto: `./monitor.sh`.
-
-## Uso
+Samples GPU usage — including VRAM — and writes it to CSV, twice a second by
+default. It also writes a CSV charging VRAM to each process, to tie memory churn
+to whoever caused it, and a CSV with disk read/write and temperature.
 
 ```bash
-./monitor.sh                      # 2 amostras/s até Ctrl+C
-./monitor.sh -d 300               # monitora por 5 minutos
-./monitor.sh -i 1000 -o run.csv   # 1 amostra/s em run.csv
-./monitor.sh -p compute           # só contextos CUDA
-./monitor.sh -q -d 60 &           # coleta em segundo plano, sem saída na tela
+./monitor.sh -d 300
 ```
 
-### Subcomandos
+```
+GPU: NVIDIA (1 card)
+writing to: /home/you/.monitor/log/monitor-20260916-095821.csv
+interval: 500ms | duration: 300s | Ctrl+C to stop
 
-Os três coletores são independentes e podem rodar isolados. Sem subcomando, o
-padrão é `all` — o mesmo comportamento de sempre.
+09:58:21  GPU0  util  30%   vram   794/4096 MiB (19.4%)   temp  52 C    24.00 W
+09:58:22  GPU0  util  35%   vram   812/4096 MiB (19.8%)   temp  53 C    26.10 W
+```
 
-| Subcomando | O que coleta | Arquivo gerado |
+Three collectors on one timeline: GPU, per-process VRAM and disk, sampled on the
+same clock so the CSVs join on the timestamp. No daemon, no dependencies beyond
+bash and awk, and the files are flushed every sample so you can plot them while
+collection is still running.
+
+## Install
+
+```bash
+git clone https://github.com/rattones/monitor.git
+cd monitor
+./install.sh          # into ~/.local, no root needed
+```
+
+Or run it straight from the clone with `./monitor.sh`. Full details, including
+system-wide install and troubleshooting, in [INSTALL.md](INSTALL.md).
+
+## Usage
+
+```bash
+monitor                      # 2 samples/s until Ctrl+C
+monitor -d 300               # for 5 minutes
+monitor -i 1000 -o run.csv   # 1 sample/s into run.csv
+monitor -p compute           # CUDA contexts only
+monitor -q -d 60 &           # in the background, no screen output
+```
+
+### Subcommands
+
+The three collectors are independent and can run alone. With no subcommand the
+default is `all`.
+
+| Subcommand | Collects | File |
 |---|---|---|
-| `all` (padrão) | GPU, processos e disco | os três |
-| `gpu` | só as métricas da GPU | `<saída>.csv` |
-| `disk` | só I/O e temperatura dos discos | `<saída>-disk.csv` |
-| `proc` | só a VRAM por processo | `<saída>-procs.csv` |
+| `all` (default) | GPU, processes and disk | all three |
+| `gpu` | GPU metrics only | `<output>.csv` |
+| `disk` | disk I/O and temperature | `<output>-disk.csv` |
+| `proc` | per-process VRAM only | `<output>-procs.csv` |
 
 ```bash
-./monitor.sh disk -D nvme0n1 -d 60   # só o disco
-./monitor.sh proc -f chrome          # só os processos, filtrando
-./monitor.sh gpu -i 250              # só a GPU, 4 amostras/s
+monitor disk -D nvme0n1 -d 60   # disk only
+monitor proc -f chrome          # processes only, filtered
+monitor gpu -i 250              # GPU only, 4 samples/s
 ```
 
-O subcomando vem **antes** das opções. `disk` não precisa de GPU NVIDIA: roda
-numa máquina sem `nvidia-smi`, já que lê apenas `/proc` e `/sys`.
+The subcommand comes **before** the options. `disk` needs no GPU at all: it
+reads only `/proc` and `/sys`, so it runs on a machine without `nvidia-smi`.
 
-> **Mudança na v3.1:** `-i/--interval` agora recebe **milissegundos inteiros**,
-> não segundos, e o padrão passou de 1s para 500ms. Um `-i 0.5` antigo vira
-> `-i 500`; o script detecta o valor fracionário e sugere a tradução em vez de
-> só recusar.
+### Options
 
-| Opção | Descrição |
+| Option | Description |
 |---|---|
-| `-i, --interval MS` | Intervalo entre amostras, em **milissegundos** (padrão `500`; inteiro, mínimo `100`) |
-| `-d, --duration SEG` | Duração total (padrão `0` = até Ctrl+C) |
-| `-o, --output ARQ` | Arquivo CSV (padrão `~/.monitor/log/monitor-AAAAMMDD-HHMMSS.csv`) |
-| `-g, --gpu IDX` | Monitora só a GPU de índice `IDX` (padrão: todas) |
-| `-p, --procs MODO` | `all` (padrão) = processos de compute e gráficos; `compute` = só CUDA; `off` = não coleta |
-| `-f, --filter ALVO` | Monitora só estes processos — PID ou nome, vários por vírgula, opção repetível (ver abaixo) |
-| `-D, --disk MODO` | `all` (padrão) = todos os discos físicos; `off` = não coleta; ou uma lista (`nvme0n1`, `sda,sdb`) |
-| `-t, --top N` | Quantos processos no resumo final (padrão `5`; `0` desliga) |
-| `-q, --quiet` | Só grava os CSVs, sem imprimir na tela |
-| `-b, --backend NOME` | Força um backend de GPU (padrão: autodetecção) |
-| `-h, --help` | Ajuda |
-| `-V, --version` | Versão |
+| `-i, --interval MS` | Interval between samples, in **milliseconds** (default `500`; whole number, minimum `100`) |
+| `-d, --duration SEC` | Total duration (default `0` = until Ctrl+C) |
+| `-o, --output FILE` | Output CSV (default `~/.monitor/log/monitor-YYYYMMDD-HHMMSS.csv`) |
+| `-g, --gpu IDX` | Monitor only the GPU at index `IDX` (default: all) |
+| `-b, --backend NAME` | Force a GPU backend (default: autodetection) |
+| `-p, --procs MODE` | `all` (default) = compute and graphics; `compute` = CUDA only; `off` = skip |
+| `-f, --filter TARGET` | Monitor only these processes — PID or name, comma-separated, repeatable |
+| `-D, --disk MODE` | `all` (default) = every physical disk; `off` = skip; or a list (`nvme0n1`, `sda,sdb`) |
+| `-t, --top N` | How many processes in the final summary (default `5`; `0` off) |
+| `-q, --quiet` | Only write the CSVs, print nothing |
+| `-h, --help` | Help |
+| `-V, --version` | Version |
 
-Ctrl+C encerra de forma limpa: a última amostra é gravada, o resumo é exibido e
-nenhum processo fica órfão.
+Ctrl+C stops cleanly: the last sample is written, the summary is printed, and no
+process is left orphaned.
 
-## Escolhendo o que monitorar
+## GPU support
 
-`-f/--filter` restringe o CSV de processos a alvos específicos. Cada alvo é um
-**PID** (só dígitos) ou um **nome** (qualquer outra coisa); vários alvos vão
-separados por vírgula, e a opção pode repetir:
+| Backend | GPU metrics | Per-process VRAM |
+|---|---|---|
+| `nvidia` | yes | yes |
+| `amd` | yes | no |
+| `intel` | yes\* | no |
+
+The backend is autodetected, or forced with `-b/--backend`.
+
+**AMD** reads the `amdgpu` driver's sysfs — no root, no external tool. Verified
+against a Radeon Vega (Cezanne). On that APU `mem_util_pct` comes out empty
+because the card does not expose `mem_busy_percent`; dedicated cards usually do.
+
+**\* Intel** was written from kernel documentation and has **never run on real
+hardware** — there is no Intel GPU on the development machine. Its parsing and
+unit conversion are exercised against a simulated sysfs tree, but the paths
+themselves are unverified. It warns about this when it starts.
+[Help us fix that →](CONTRIBUTING.md)
+
+Neither AMD nor Intel has an equivalent to `nvidia-smi -q -d PIDS`, so `proc` is
+refused on them with an explanation rather than producing an empty CSV. To
+collect GPU and disk on AMD:
 
 ```bash
-./monitor.sh -f chrome                # um nome
-./monitor.sh -f chrome,Xorg           # vários nomes
-./monitor.sh -f 1598                  # um PID
-./monitor.sh -f dota,4892 -f cinnamon # nomes e PIDs misturados
+monitor -b amd -p off
 ```
 
-- **Nome** casa por trecho, ignorando maiúsculas: `-f steam` pega `steam` e
-  `steamwebhelper`; `-f XORG` pega `Xorg`.
-- O nome é comparado com o **executável**. Quando o alvo traz caminho ou
-  argumentos, ele é comparado também com a **linha de comando inteira** — então
-  dá para colar o que você vê no `ps` ou no `nvidia-smi -q`:
+## Choosing what to monitor
+
+`-f/--filter` restricts the process CSV to specific targets. Each target is a
+**PID** (digits only) or a **name** (anything else):
+
+```bash
+monitor -f chrome                # one name
+monitor -f chrome,Xorg           # several names
+monitor -f 1598                  # one PID
+monitor -f dota,4892 -f cinnamon # names and PIDs mixed
+```
+
+- **Name** matches as a substring, case-insensitive: `-f steam` catches `steam`
+  and `steamwebhelper`.
+- The name is matched against the **executable**. When the target carries a path
+  or arguments, it is matched against the **whole command line** too, so you can
+  paste what you see in `ps` or `nvidia-smi -q`:
 
   ```bash
-  ./monitor.sh -f /opt/google/chrome/chrome
-  ./monitor.sh -f "python3 train.py"
-  ./monitor.sh -f "...rack-uuid=3190708988185955192"   # nome truncado pelo nvidia-smi
+  monitor -f /opt/google/chrome/chrome
+  monitor -f "python3 train.py"
+  monitor -f "...rack-uuid=3190708988185955192"   # name truncated by nvidia-smi
   ```
 
-  A busca na linha de comando vale só para esses alvos mais específicos. Um alvo
-  curto como `-f gpu` olha apenas o executável, senão recolheria todo processo
-  que tem `--type=gpu-process` entre os argumentos.
-- **PID** casa exato: `-f 159` não pega o PID `1598`.
-- Basta casar **um** alvo para o processo entrar (os alvos são alternativas,
-  não requisitos simultâneos).
-- Para um nome que é só dígitos, desfaça a ambiguidade com `name:` ou `pid:` —
-  `-f name:1234` procura o processo *chamado* `1234`.
-- A vírgula separa alvos, sempre. Para um comando que tenha vírgula nos
-  argumentos, filtre por um trecho sem vírgula.
-- O filtro é aplicado a cada amostra: um processo que só nasce no meio da
-  coleta aparece a partir daí.
-- Se nada casar, o script avisa e lista os processos que estavam na GPU, para
-  você corrigir o alvo.
+  Wide matching applies only to those more specific targets. A short one like
+  `-f gpu` looks at the executable only, or it would catch every process with
+  `--type=gpu-process` in its arguments.
+- **PID** matches exactly: `-f 159` does not catch PID `1598`.
+- Matching **one** target is enough — targets are alternatives, not requirements.
+- For a name that is all digits, disambiguate with `name:` or `pid:` —
+  `-f name:1234` looks for the process *called* `1234`.
+- If nothing matches, the script says so and lists what was on the GPU, so you
+  can correct the target.
 
-## Saídas
+## Output
 
-### `<saída>.csv` — uma linha por GPU por amostra
+### `<output>.csv` — one line per GPU per sample
 
-| Coluna | Significado |
+| Column | Meaning |
 |---|---|
-| `timestamp` | ISO-8601 local com milissegundos |
-| `gpu_index` / `gpu_name` | índice e modelo da GPU |
-| `gpu_util_pct` | % de tempo com kernels ativos (ocupação do núcleo) |
-| `mem_util_pct` | % de tempo com o barramento de memória em uso |
-| `vram_total_mib` / `vram_used_mib` / `vram_free_mib` | VRAM em MiB |
-| `vram_used_pct` | VRAM em uso, em % do total |
-| `temp_c` | temperatura do núcleo, em °C |
-| `power_w` | consumo em W (vazio se a GPU não reporta) |
-| `sm_clock_mhz` / `mem_clock_mhz` | clocks dos SMs e da memória |
+| `timestamp` | local ISO-8601 with milliseconds |
+| `gpu_index` / `gpu_name` | index and model |
+| `gpu_util_pct` | % of time with active kernels (core occupancy) |
+| `mem_util_pct` | % of time with the memory bus in use |
+| `vram_total_mib` / `vram_used_mib` / `vram_free_mib` | VRAM in MiB |
+| `vram_used_pct` | VRAM in use, as % of total |
+| `temp_c` | core temperature, °C |
+| `power_w` | draw in W (empty if not reported) |
+| `sm_clock_mhz` / `mem_clock_mhz` | SM and memory clocks |
 
-`gpu_util_pct` e `mem_util_pct` são percentuais de *tempo ocupado*, não de
-capacidade: `mem_util_pct` alto com `vram_used_pct` baixo significa tráfego
-intenso em pouca memória. Para saber quanta VRAM está sendo consumida, use
-`vram_used_mib` / `vram_used_pct`.
+`gpu_util_pct` and `mem_util_pct` are percentages of *time busy*, not of
+capacity: a high `mem_util_pct` with a low `vram_used_pct` means heavy traffic
+through little memory. For how much VRAM is being consumed, use `vram_used_mib`.
 
-### `<saída>-procs.csv` — uma linha por processo por amostra
+### `<output>-procs.csv` — one line per process per sample
 
-| Coluna | Significado |
+| Column | Meaning |
 |---|---|
-| `timestamp` | ISO-8601 local (resolução de 1s) |
-| `gpu_index` | índice da GPU |
-| `pid` | PID do processo |
-| `type` | `C` = compute (CUDA), `G` = gráficos, `C+G` = os dois contextos |
-| `process_name` | nome do executável (a linha de comando completa é descartada) |
-| `used_vram_mib` | VRAM atribuída a esse processo |
+| `timestamp` | local ISO-8601 (1s resolution) |
+| `gpu_index` / `pid` | GPU index and process PID |
+| `type` | `C` = compute (CUDA), `G` = graphics, `C+G` = both |
+| `process_name` | executable name (the full command line is discarded) |
+| `used_vram_mib` | VRAM charged to this process |
 
-Ao terminar, o script imprime os maiores consumidores da sessão:
+At the end, the biggest consumers of the session:
 
 ```
-top 5 processos por VRAM (média / pico):
+top 5 processes by VRAM (avg / peak):
   dota                     pid 60282   [C+G]    1404 MiB /   1404 MiB
   Xorg                     pid 1598    [G]      285 MiB /    285 MiB
-  chrome                   pid 4892    [G]      185 MiB /    190 MiB
 ```
 
-### `<saída>-disk.csv` — uma linha por disco por amostra
+### `<output>-disk.csv` — one line per disk per sample
 
-| Coluna | Significado |
+| Column | Meaning |
 |---|---|
-| `timestamp` | ISO-8601 local (resolução de 1s) |
-| `device` | nome do disco (`nvme0n1`, `sda`...) |
-| `read_mb_s` / `write_mb_s` | taxa de leitura e escrita no intervalo, em MB/s |
-| `read_iops` / `write_iops` | operações por segundo |
-| `util_pct` | % de tempo com pelo menos uma requisição em voo |
-| `temp_c` | temperatura do disco (vazio se não houver sensor) |
+| `timestamp` / `device` | timestamp and disk name |
+| `read_mb_s` / `write_mb_s` | read and write rate over the interval, MB/s |
+| `read_iops` / `write_iops` | operations per second |
+| `util_pct` | % of time with at least one request in flight |
+| `temp_c` | disk temperature (empty if there is no sensor) |
+
+And in the final summary:
 
 ```
-timestamp,device,read_mb_s,write_mb_s,read_iops,write_iops,util_pct,temp_c
-2026-09-15T23:15:44,nvme0n1,0.64,513.00,165,4610,47.7,42.9
-2026-09-15T23:15:45,nvme0n1,554.46,0.58,4982,6,40.8,42.9
+disk - read / write (avg / peak):
+  nvme0n1      59.5 /  554.5 MB/s     60.2 /  513.0 MB/s   temp 42.8 / 42.9 C
 ```
 
-E no resumo final:
+Worth knowing:
 
-```
-disco (média / pico):
-  nvme0n1    leitura   59.5 /  554.5 MB/s   escrita   60.2 /  513.0 MB/s   temp 42.8 / 42.9 C
-```
+- Rates are **deltas** between samples, so the first reading is the baseline and
+  this CSV's first line appears one interval after the start.
+- `util_pct` is time with I/O in flight, not throughput. An NVMe serves several
+  queues in parallel, so it can saturate its bandwidth at 40% `util_pct`.
+- Temperature comes from the device's own `hwmon`. NVMe exposes it directly;
+  SATA disks need the `drivetemp` module (`sudo modprobe drivetemp`).
+- Partitions are not accepted in `-D`: I/O is accounted to the whole disk.
+  `dm-*`, `md*` and `loop*` are excluded from `all` because they would mirror
+  real disks and count twice.
+- No root and no `smartctl` needed.
 
-Detalhes que valem saber:
+### A metric that is not reported is empty, never zero
 
-- As taxas são **deltas** entre amostras: a primeira leitura serve de base, então
-  a primeira linha deste CSV sai um intervalo depois do início da coleta.
-- `util_pct` é tempo com I/O em voo, não vazão. Um NVMe atende várias filas em
-  paralelo, então pode estar a 40% de `util_pct` já saturando a banda.
-- A temperatura vem do `hwmon` do próprio dispositivo. NVMe expõe direto (o
-  sensor `Composite`); discos SATA dependem do módulo `drivetemp`
-  (`sudo modprobe drivetemp`). Sem sensor, a coluna fica vazia — o script não
-  falha por isso.
-- Partições não são aceitas em `-D`: o I/O é contabilizado no disco inteiro.
-  `dm-*`, `md*` e `loop*` ficam de fora do modo `all` porque espelhariam o I/O
-  dos discos reais, contando duas vezes.
-- Não precisa de root nem de `smartctl`: tudo vem de `/proc/diskstats` e
-  `/sys/class/hwmon`.
+Zero is a measured value; empty is the absence of a measurement. Every backend
+writes the same columns in the same order — that is what lets you put
+collections from different machines on the same chart — and leaves a cell empty
+when that hardware does not expose the metric.
 
-## Por que não `--query-compute-apps`
+## Language
 
-`nvidia-smi --query-compute-apps=pid,used_memory` é o caminho canônico, mas só
-enxerga contextos **CUDA**. Num desktop, a VRAM em uso costuma ser toda de
-processos **gráficos** (Xorg, navegador, jogo, compositor), e a consulta volta
-vazia — sem atribuir nada. O script usa `nvidia-smi -q -d PIDS`, que traz as
-duas famílias com o tipo explícito; `--procs compute` mantém quem tem contexto
-de compute (`C` e também `C+G`, como um jogo que usa CUDA e vídeo ao mesmo
-tempo) e reproduz o recorte do `--query-compute-apps`.
-
-## Onde ficam os arquivos
-
-| O quê | Onde |
-|---|---|
-| CSVs | `~/.monitor/log/` (sobrepõe com `MONITOR_LOG_DIR`) |
-| Comando instalado | `<prefixo>/bin/monitor` |
-| Bibliotecas | `<prefixo>/lib/monitor/` |
-
-Os logs ficam na home, e não ao lado do script, para o comando instalado em
-`/usr/local` não tentar escrever num diretório do sistema — e para cada usuário
-ter os próprios. Desinstalar não apaga os CSVs.
-
-## Testes
+Runtime text — help, errors, banner and summaries — follows the system locale.
+English and Portuguese are translated; any other locale falls back to English.
 
 ```bash
-./tests/run-tests.sh          # 96 testes, ~1min
-./tests/run-tests.sh -v amd   # filtra e mostra a saída das falhas
+LANG=en_US.UTF-8 monitor --help   # English
+LANG=pt_BR.UTF-8 monitor --help   # Portuguese
+MONITOR_LANG=en monitor --help    # force, ignoring the locale
 ```
 
-A suíte roda o monitor contra mocks — `nvidia-smi` falso e árvores de sysfs
-simuladas —, então dá o mesmo resultado numa máquina sem GPU nenhuma. Cada
-fabricante é testado em duas gerações (moderna e antiga), porque é na antiga,
-onde faltam métricas, que o contrato de colunas vazias é posto à prova.
-Detalhes em [tests/README.md](tests/README.md).
+Detection follows POSIX precedence (`LC_ALL` > `LC_MESSAGES` > `LANG`), with
+`MONITOR_LANG` above all. Catalogs live in `lib/i18n/<lang>.sh`; adding a
+language is adding a file.
 
-## Idioma
+**The CSV does not change with the language.** Headers and the decimal separator
+are data format, not text — otherwise two collections from the same machine
+would stop being comparable. A test covers exactly that.
 
-O texto que aparece em execução — ajuda, erros, banner e resumos — segue o
-locale do sistema. Português e inglês estão traduzidos; qualquer outro locale
-cai para inglês.
+Code comments are in Portuguese.
 
-```bash
-LANG=en_US.UTF-8 ./monitor.sh --help   # inglês
-LANG=pt_BR.UTF-8 ./monitor.sh --help   # português
-MONITOR_LANG=en ./monitor.sh --help    # força, ignorando o locale
-```
-
-A detecção segue a precedência POSIX (`LC_ALL` > `LC_MESSAGES` > `LANG`), com
-`MONITOR_LANG` acima de todas. Os catálogos ficam em `lib/i18n/<idioma>.sh`;
-adicionar um idioma é adicionar um arquivo, e o que faltar nele cai para o
-inglês em vez de deixar buracos.
-
-**O CSV não muda com o idioma.** Cabeçalhos e separador decimal são formato de
-dados, não texto — do contrário duas coletas da mesma máquina deixariam de ser
-comparáveis. Há um teste dedicado a isso.
-
-Os comentários do código seguem em português.
-
-## Estrutura do código
+## Code layout
 
 ```
-install.sh              instala/remove o comando no sistema
-tests/                  suíte de testes e mocks
-monitor.sh              entrada: carrega lib/, monta main()
+monitor.sh              entry point: loads lib/, assembles main()
+install.sh              installs/removes the system command
 lib/
-├── core.sh             die, run_source, FIFOs, traps, espera
-├── backend.sh          contrato dos backends de GPU + autodetecção
-├── csv.sh              cabeçalhos e abertura dos CSVs
-├── args.sh             subcomando, opções, validação
-├── filter.sh           alvos de --filter
-├── disk.sh             coleta de disco (não depende de GPU)
-├── report.sh           banner, resumos, rodapé
-├── i18n.sh             detecção de idioma e catálogo
-├── i18n/               mensagens e ajuda por idioma
+├── core.sh             die, run_source, FIFOs, traps, waiting
+├── backend.sh          GPU backend contract + autodetection
+├── csv.sh              headers and file setup
+├── args.sh             subcommand, options, validation
+├── filter.sh           --filter targets
+├── disk.sh             disk collector (needs no GPU)
+├── report.sh           banner, summaries, footer
+├── i18n.sh             language detection and catalog
+├── i18n/               messages and help per language
 └── backends/
-    ├── nvidia.sh       via nvidia-smi — implementado
-    ├── amd.sh          via sysfs amdgpu — implementado (sem VRAM/processo)
-    └── intel.sh        via sysfs i915/xe — não testado em hardware
+    ├── nvidia.sh       via nvidia-smi — implemented
+    ├── amd.sh          via amdgpu sysfs — implemented (no per-process VRAM)
+    └── intel.sh        via i915/xe sysfs — untested on hardware
+tests/                  test suite and mocks
 ```
 
-Tudo que é específico de um fabricante fica em `lib/backends/<nome>.sh`, atrás
-do contrato descrito em `lib/backend.sh`. Um backend implementa sete funções
-(`probe`, `name`, `init`, `supports_procs`, `start_gpu`, `start_proc`,
-`list_procs`); o carregador confere se todas existem e recusa um arquivo
-incompleto listando o que falta, em vez de falhar no meio de uma coleta.
+Everything vendor-specific lives in `lib/backends/<name>.sh`, behind the
+contract described in `lib/backend.sh`. A backend implements seven functions;
+the loader checks they all exist and refuses an incomplete file listing what is
+missing, rather than failing halfway through a collection.
 
-O backend é escolhido por autodetecção, ou forçado com `-b/--backend`:
+## Tests
 
 ```bash
-./monitor.sh -b nvidia       # força um backend
-./monitor.sh --help          # lista os disponíveis
+./tests/run-tests.sh          # 106 tests, about a minute
+./tests/run-tests.sh -v amd   # filter, show output of failures
 ```
 
-**Estado atual:**
+The suite runs the real script against mocks — a fake `nvidia-smi` and simulated
+sysfs trees — so it gives the same result on a machine with no GPU at all. Each
+vendor is tested at two generations, modern and old, because it is on the old
+one, where metrics are missing, that the empty-cell contract is put to the test.
 
-| Backend | Métricas da GPU | VRAM por processo |
-|---|---|---|
-| `nvidia` | sim | sim |
-| `amd` | sim | não |
-| `intel` | sim* | não |
+Details in [tests/README.md](tests/README.md).
 
-O backend AMD lê sysfs do driver `amdgpu`, sem root e sem ferramenta externa.
-Foi verificado numa Radeon Vega (Cezanne, APU): `mem_util_pct` fica vazio
-porque esta placa não expõe `mem_busy_percent` — placas dedicadas costumam
-expor. As demais colunas são preenchidas.
+## Contributing
 
-\* O backend Intel foi escrito a partir de documentação e **nunca rodou em
-hardware real** — não há GPU Intel na máquina de desenvolvimento. A lógica de
-leitura, conversão e cadência foi exercitada contra um sysfs simulado, mas os
-caminhos e as unidades precisam ser conferidos numa máquina de verdade. Ele
-avisa isso ao iniciar, e `intel_debug_paths` imprime os caminhos resolvidos
-sem coletar nada, para facilitar a conferência. Nele, `gpu_util_pct` sai vazio:
-a ocupação do núcleo exige os contadores do `i915_pmu`, que precisariam do
-`intel_gpu_top` e de privilégio — o backend lê só o que o sysfs dá sem root.
+**If you have an AMD or Intel GPU, the most useful thing you can do takes a
+minute:** run two commands and paste the output into an issue. The Intel backend
+has never touched real hardware, and the AMD one was verified against a single
+card. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Nem AMD nem Intel têm equivalente ao `nvidia-smi -q -d PIDS`, então o
-subcomando `proc` é recusado neles. Para coletar GPU e disco com AMD, use
-`--procs off`:
+## Analysis examples
 
 ```bash
-./monitor.sh -b amd -p off      # GPU + disco
-./monitor.sh gpu -b amd         # só a GPU
-```
+# peak and average VRAM used
+awk -F, 'NR>1 { s+=$7; if ($7>m) m=$7 } END { printf "avg %.0f MiB | peak %d MiB\n", s/(NR-1), m }' \
+    ~/.monitor/log/monitor-*.csv
 
-Um backend que não sabe atribuir VRAM por processo declara isso em
-`supports_procs`, e o subcomando `proc` é recusado com explicação em vez de
-gerar um CSV vazio. É o caso de AMD e Intel: nenhuma das duas tem equivalente
-direto ao `nvidia-smi -q -d PIDS`.
+# samples where the GPU went over 80%
+awk -F, 'NR>1 && $4>80' ~/.monitor/log/monitor-*.csv
 
-## Notas
-
-- Os CSVs recebem flush a cada amostra, então podem ser lidos ou plotados
-  durante a coleta.
-- Os três arquivos se juntam pelo segundo do timestamp (e pelo `gpu_index`,
-  entre os dois primeiros).
-- Apontar `-o` para um CSV já existente faz append sem repetir o cabeçalho; o
-  resumo final considera só a sessão atual.
-- A soma de `used_vram_mib` é menor que `vram_used_mib`: o driver e o contexto
-  de vídeo reservam memória fora dos processos.
-- A cadência vem do próprio `nvidia-smi` (`-lms`), que mantém uma única sessão
-  NVML aberta — sem o custo e o drift de reabrir o driver a cada amostra.
-- Requer `nvidia-smi` (pacote `nvidia-utils-*`).
-
-## Exemplos de análise
-
-```bash
-# pico e média de VRAM usada
-awk -F, 'NR>1 { s+=$7; if ($7>m) m=$7 } END { printf "media %.0f MiB | pico %d MiB\n", s/(NR-1), m }' logs/monitor-*.csv
-
-# amostras em que a GPU passou de 80% de uso
-awk -F, 'NR>1 && $4>80' logs/monitor-*.csv
-
-# total de VRAM atribuída a processos, por amostra
-awk -F, 'NR>1 { s[$1]+=$6 } END { for (t in s) print t, s[t] }' logs/monitor-*-procs.csv | sort
-
-# acompanhar só um processo, do início ao fim
-./monitor.sh -f dota -i 500
-
-# picos de I/O e temperatura por disco
-awk -F, 'NR>1 { if ($3>r[$2]) r[$2]=$3; if ($4>w[$2]) w[$2]=$4; if ($8>t[$2]) t[$2]=$8 }
-         END { for (d in r) printf "%s: leitura %.1f MB/s | escrita %.1f MB/s | temp %.1f C\n", d, r[d], w[d], t[d] }' \
-    logs/monitor-*-disk.csv
-
-# momentos em que o disco passou de 50% de utilização
-awk -F, 'NR>1 && $7>50' logs/monitor-*-disk.csv
-
-# a GPU esperou pelo disco? cruza util da GPU com util do disco no mesmo segundo
+# did the GPU wait on the disk? cross GPU util with disk util in the same second
 awk -F, 'FNR==1 { next }
          FILENAME ~ /-disk/ { d[substr($1,1,19)] = $7; next }
-         { g = substr($1,1,19); if (g in d) printf "%s  gpu %3s%%  disco %5.1f%%\n", g, $4, d[g] }' \
-    logs/monitor-*-disk.csv logs/monitor-*[0-9].csv
+         { g = substr($1,1,19); if (g in d) printf "%s  gpu %3s%%  disk %5.1f%%\n", g, $4, d[g] }' \
+    ~/.monitor/log/monitor-*-disk.csv ~/.monitor/log/monitor-*[0-9].csv
 
-# quem cresceu durante a coleta: primeira vs última leitura de cada PID
+# who grew during the collection: first vs last reading per PID
 awk -F, 'NR>1 { if (!(($3) in first)) first[$3]=$6; last[$3]=$6; name[$3]=$5 }
          END { for (p in last) printf "%-24s pid %-7s %+6d MiB\n", name[p], p, last[p]-first[p] }' \
-    logs/monitor-*-procs.csv | sort -k4 -n
+    ~/.monitor/log/monitor-*-procs.csv | sort -k4 -n
 ```
+
+## Why not `--query-compute-apps`
+
+`nvidia-smi --query-compute-apps=pid,used_memory` is the canonical route, but it
+only sees **CUDA** contexts. On a desktop, VRAM in use is usually all from
+**graphics** processes (Xorg, browser, game, compositor), and the query comes
+back empty — attributing nothing. This uses `nvidia-smi -q -d PIDS`, which
+reports both families with an explicit type; `--procs compute` keeps whatever
+has a compute context (`C`, and also `C+G` — a game using CUDA and video at
+once) and reproduces the `--query-compute-apps` slice.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
