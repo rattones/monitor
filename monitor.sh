@@ -16,9 +16,15 @@
 
 set -uo pipefail
 
-VERSION="3.1"
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-LIB_DIR="$SCRIPT_DIR/lib"
+VERSION="3.2"
+
+# readlink -f resolve a cadeia de symlinks ate o arquivo real: instalado, o
+# comando em /usr/local/bin e um link, e sem isto o lib/ seria procurado ao
+# lado do link, onde nao existe. LIB_DIR pode vir do ambiente para uma
+# instalacao que separe o executavel das bibliotecas (ex.: /usr/lib/monitor).
+SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)"
+LIB_DIR="${MONITOR_LIB_DIR:-$SCRIPT_DIR/lib}"
 
 # A ordem importa: core.sh define o die() que os outros usam, e backend.sh
 # define o backend_call() de que filter.sh e report.sh dependem.
@@ -44,7 +50,8 @@ Opcoes comuns:
   -i, --interval MS    Intervalo entre amostras, em milissegundos
                        (padrao: 500; inteiro, minimo 100)
   -d, --duration SEG   Duracao total em segundos (padrao: 0 = ate Ctrl+C)
-  -o, --output ARQ     Arquivo CSV de saida (padrao: $SCRIPT_DIR/logs/monitor-AAAAMMDD-HHMMSS.csv)
+  -o, --output ARQ     Arquivo CSV de saida
+                       (padrao: $LOG_DIR/monitor-AAAAMMDD-HHMMSS.csv)
   -q, --quiet          Nao imprime nada na tela, so grava os CSVs
   -h, --help           Mostra esta ajuda
   -V, --version        Mostra a versao

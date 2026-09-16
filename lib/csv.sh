@@ -7,6 +7,12 @@
 # colunas, na mesma ordem. Metrica que o hardware nao reporta vira celula
 # vazia - zero e um valor medido, vazio e a ausencia de medida.
 
+# Onde os CSVs vao quando --output nao e informado. Fica na home, e nao ao lado
+# do script, para o comando instalado em /usr/local/bin nao tentar escrever num
+# diretorio do sistema - e para cada usuario ter os proprios logs.
+# MONITOR_LOG_DIR sobrepoe, para quem quiser outro lugar sem passar -o sempre.
+LOG_DIR="${MONITOR_LOG_DIR:-$HOME/.monitor/log}"
+
 GPU_CSV_HEADER="timestamp,gpu_index,gpu_name,gpu_util_pct,mem_util_pct,vram_total_mib,vram_used_mib,vram_free_mib,vram_used_pct,temp_c,power_w,sm_clock_mhz,mem_clock_mhz"
 PROCS_CSV_HEADER="timestamp,gpu_index,pid,type,process_name,used_vram_mib"
 DISK_CSV_HEADER="timestamp,device,read_mb_s,write_mb_s,read_iops,write_iops,util_pct,temp_c"
@@ -22,8 +28,8 @@ init_csv() {
 # comeca, para o resumo final nao somar linhas de coletas anteriores.
 setup_outputs() {
   if [[ -z "$OUTPUT" ]]; then
-    mkdir -p "$SCRIPT_DIR/logs" || die "nao consegui criar $SCRIPT_DIR/logs"
-    OUTPUT="$SCRIPT_DIR/logs/monitor-$(date +%Y%m%d-%H%M%S).csv"
+    mkdir -p "$LOG_DIR" || die "nao consegui criar $LOG_DIR"
+    OUTPUT="$LOG_DIR/monitor-$(date +%Y%m%d-%H%M%S).csv"
   fi
   mkdir -p "$(dirname -- "$OUTPUT")" || die "nao consegui criar $(dirname -- "$OUTPUT")"
 

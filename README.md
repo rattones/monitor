@@ -5,6 +5,25 @@ amostras por segundo. Grava também um CSV atribuindo a VRAM a cada processo, pa
 ligar o churn de memória a quem o causa, e um CSV com leitura/escrita e
 temperatura dos discos.
 
+## Instalação
+
+```bash
+./install.sh                # para o seu usuário (~/.local), sem root
+sudo ./install.sh --system  # para todos (/usr/local)
+./install.sh --uninstall    # remove
+```
+
+Instala o comando `monitor` e as bibliotecas em `<prefixo>/lib/monitor/`. O
+executável é **copiado**, não ligado: mover ou apagar a pasta do projeto depois
+não quebra o comando. Para desenvolver — editar aqui e ver o efeito na hora —
+use `./install.sh --link`.
+
+O instalador confere a sintaxe de todos os arquivos antes de copiar, avisa se o
+diretório de destino não está no `PATH`, e recusa sobrescrever um `monitor`
+que não seja dele (a menos que você passe `--force`).
+
+Sem instalar, o script roda direto: `./monitor.sh`.
+
 ## Uso
 
 ```bash
@@ -45,7 +64,7 @@ numa máquina sem `nvidia-smi`, já que lê apenas `/proc` e `/sys`.
 |---|---|
 | `-i, --interval MS` | Intervalo entre amostras, em **milissegundos** (padrão `500`; inteiro, mínimo `100`) |
 | `-d, --duration SEG` | Duração total (padrão `0` = até Ctrl+C) |
-| `-o, --output ARQ` | Arquivo CSV (padrão `logs/monitor-AAAAMMDD-HHMMSS.csv`) |
+| `-o, --output ARQ` | Arquivo CSV (padrão `~/.monitor/log/monitor-AAAAMMDD-HHMMSS.csv`) |
 | `-g, --gpu IDX` | Monitora só a GPU de índice `IDX` (padrão: todas) |
 | `-p, --procs MODO` | `all` (padrão) = processos de compute e gráficos; `compute` = só CUDA; `off` = não coleta |
 | `-f, --filter ALVO` | Monitora só estes processos — PID ou nome, vários por vírgula, opção repetível (ver abaixo) |
@@ -190,9 +209,22 @@ duas famílias com o tipo explícito; `--procs compute` mantém quem tem context
 de compute (`C` e também `C+G`, como um jogo que usa CUDA e vídeo ao mesmo
 tempo) e reproduz o recorte do `--query-compute-apps`.
 
+## Onde ficam os arquivos
+
+| O quê | Onde |
+|---|---|
+| CSVs | `~/.monitor/log/` (sobrepõe com `MONITOR_LOG_DIR`) |
+| Comando instalado | `<prefixo>/bin/monitor` |
+| Bibliotecas | `<prefixo>/lib/monitor/` |
+
+Os logs ficam na home, e não ao lado do script, para o comando instalado em
+`/usr/local` não tentar escrever num diretório do sistema — e para cada usuário
+ter os próprios. Desinstalar não apaga os CSVs.
+
 ## Estrutura do código
 
 ```
+install.sh              instala/remove o comando no sistema
 monitor.sh              entrada: carrega lib/, monta main()
 lib/
 ├── core.sh             die, run_source, FIFOs, traps, espera
