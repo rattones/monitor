@@ -96,8 +96,13 @@ _amd_first_readable() {
 _amd_card_name() {
   local slot="$1" dev="$2" line="" name=""
 
+  # So aceita a linha do lspci se ela descrever mesmo um adaptador de video: o
+  # slot vem do sysfs e normalmente bate, mas um slot que aponte para outra
+  # coisa daria a uma GPU o nome de outro dispositivo, sem nenhum sinal de erro.
   if command -v lspci >/dev/null 2>&1; then
-    line=$(lspci -s "${slot#0000:}" 2>/dev/null | sed 's/^[^ ]* //; s/^[^:]*: //')
+    line=$(lspci -s "${slot#0000:}" 2>/dev/null \
+           | grep -iE '(VGA compatible|3D|Display) controller' \
+           | sed 's/^[^ ]* //; s/^[^:]*: //')
     line=${line% (rev *)}
     # Ultimo "[...]" da linha: o modelo comercial.
     if [[ "$line" == *'['*']'* ]]; then

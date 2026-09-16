@@ -237,7 +237,7 @@ lib/
 └── backends/
     ├── nvidia.sh       via nvidia-smi — implementado
     ├── amd.sh          via sysfs amdgpu — implementado (sem VRAM/processo)
-    └── intel.sh        via sysfs i915/xe — esqueleto
+    └── intel.sh        via sysfs i915/xe — não testado em hardware
 ```
 
 Tudo que é específico de um fabricante fica em `lib/backends/<nome>.sh`, atrás
@@ -259,12 +259,21 @@ O backend é escolhido por autodetecção, ou forçado com `-b/--backend`:
 |---|---|---|
 | `nvidia` | sim | sim |
 | `amd` | sim | não |
-| `intel` | esqueleto | não |
+| `intel` | sim* | não |
 
 O backend AMD lê sysfs do driver `amdgpu`, sem root e sem ferramenta externa.
 Foi verificado numa Radeon Vega (Cezanne, APU): `mem_util_pct` fica vazio
 porque esta placa não expõe `mem_busy_percent` — placas dedicadas costumam
 expor. As demais colunas são preenchidas.
+
+\* O backend Intel foi escrito a partir de documentação e **nunca rodou em
+hardware real** — não há GPU Intel na máquina de desenvolvimento. A lógica de
+leitura, conversão e cadência foi exercitada contra um sysfs simulado, mas os
+caminhos e as unidades precisam ser conferidos numa máquina de verdade. Ele
+avisa isso ao iniciar, e `intel_debug_paths` imprime os caminhos resolvidos
+sem coletar nada, para facilitar a conferência. Nele, `gpu_util_pct` sai vazio:
+a ocupação do núcleo exige os contadores do `i915_pmu`, que precisariam do
+`intel_gpu_top` e de privilégio — o backend lê só o que o sysfs dá sem root.
 
 Nem AMD nem Intel têm equivalente ao `nvidia-smi -q -d PIDS`, então o
 subcomando `proc` é recusado neles. Para coletar GPU e disco com AMD, use
