@@ -183,6 +183,47 @@ duas famílias com o tipo explícito; `--procs compute` mantém quem tem context
 de compute (`C` e também `C+G`, como um jogo que usa CUDA e vídeo ao mesmo
 tempo) e reproduz o recorte do `--query-compute-apps`.
 
+## Estrutura do código
+
+```
+gpu-monitor.sh          entrada: carrega lib/, monta main()
+lib/
+├── core.sh             die, run_source, FIFOs, traps, espera
+├── backend.sh          contrato dos backends de GPU + autodetecção
+├── csv.sh              cabeçalhos e abertura dos CSVs
+├── args.sh             subcomando, opções, validação
+├── filter.sh           alvos de --filter
+├── disk.sh             coleta de disco (não depende de GPU)
+├── report.sh           banner, resumos, rodapé
+└── backends/
+    ├── nvidia.sh       via nvidia-smi — implementado
+    ├── amd.sh          via sysfs amdgpu — esqueleto
+    └── intel.sh        via sysfs i915/xe — esqueleto
+```
+
+Tudo que é específico de um fabricante fica em `lib/backends/<nome>.sh`, atrás
+do contrato descrito em `lib/backend.sh`. Um backend implementa sete funções
+(`probe`, `name`, `init`, `supports_procs`, `start_gpu`, `start_proc`,
+`list_procs`); o carregador confere se todas existem e recusa um arquivo
+incompleto listando o que falta, em vez de falhar no meio de uma coleta.
+
+O backend é escolhido por autodetecção, ou forçado com `-b/--backend`:
+
+```bash
+./gpu-monitor.sh -b nvidia       # força um backend
+./gpu-monitor.sh --help          # lista os disponíveis
+```
+
+**Estado atual:** só o backend NVIDIA coleta. AMD e Intel têm o `probe`
+funcionando — a autodetecção já os enxerga — mas as funções de coleta ainda
+falham com uma mensagem explícita. Os arquivos documentam onde cada métrica
+mora em sysfs e como a coleta deve ser feita.
+
+Um backend que não sabe atribuir VRAM por processo declara isso em
+`supports_procs`, e o subcomando `proc` é recusado com explicação em vez de
+gerar um CSV vazio. É o caso de AMD e Intel: nenhuma das duas tem equivalente
+direto ao `nvidia-smi -q -d PIDS`.
+
 ## Notas
 
 - Os CSVs recebem flush a cada amostra, então podem ser lidos ou plotados
