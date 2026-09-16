@@ -199,10 +199,10 @@ intel_init() {
   # Este backend nunca rodou em hardware: avisa uma vez, para quem vir uma
   # coluna estranha saber que o problema pode estar aqui, e nao na placa.
   if (( ! QUIET )); then
-    printf 'aviso: o backend Intel nunca foi testado em hardware real.\n' >&2
-    printf '       confira os valores contra o sysfs e reporte o que divergir.\n' >&2
+    msg intel_untested_1 >&2
+    msg intel_untested_2 >&2
     if [[ -z "$(printf '%s' "$INTEL_CARDS" | cut -d'|' -f3)" ]]; then
-      printf '       gpu_util_pct sai vazio: a ocupacao exige i915_pmu (intel_gpu_top).\n' >&2
+      msg intel_untested_3 >&2
     fi
   fi
 }
@@ -212,19 +212,22 @@ intel_init() {
 # coluna correspondente vai sair vazia no CSV.
 intel_debug_paths() {
   local rec
-  printf 'placas encontradas: %s\n' "$GPU_COUNT"
+  msg intel_dbg_cards "$GPU_COUNT"
   local IFS=';'
   for rec in $INTEL_CARDS; do
     IFS='|' read -r idx name busy memtot memused membusy temp power sclk mclk <<< "$rec"
-    printf '\nGPU %s: %s\n' "$idx" "$name"
-    printf '  gpu_util_pct   %s\n' "${busy:-<sem fonte: exige i915_pmu>}"
-    printf '  mem_util_pct   %s\n' "${membusy:-<sem fonte>}"
-    printf '  vram_total     %s\n' "${memtot:-<sem fonte: integrada?>}"
-    printf '  vram_avail     %s\n' "${memused:-<sem fonte: integrada?>}"
-    printf '  temp_c         %s\n' "${temp:-<sem fonte>}"
-    printf '  power_w        %s\n' "${power:-<sem fonte>}"
-    printf '  sm_clock_mhz   %s\n' "${sclk:-<sem fonte>}"
-    printf '  mem_clock_mhz  %s\n' "${mclk:-<sem equivalente no i915/xe>}"
+    msg intel_dbg_gpu "$idx" "$name"
+    local no_pmu no_src integ no_mclk
+    no_pmu="$(msg intel_dbg_no_pmu)"; no_src="$(msg intel_dbg_no_source)"
+    integ="$(msg intel_dbg_integrated)"; no_mclk="$(msg intel_dbg_no_mclk)"
+    printf '  gpu_util_pct   %s\n' "${busy:-$no_pmu}"
+    printf '  mem_util_pct   %s\n' "${membusy:-$no_src}"
+    printf '  vram_total     %s\n' "${memtot:-$integ}"
+    printf '  vram_avail     %s\n' "${memused:-$integ}"
+    printf '  temp_c         %s\n' "${temp:-$no_src}"
+    printf '  power_w        %s\n' "${power:-$no_src}"
+    printf '  sm_clock_mhz   %s\n' "${sclk:-$no_src}"
+    printf '  mem_clock_mhz  %s\n' "${mclk:-$no_mclk}"
   done
 }
 
@@ -358,7 +361,7 @@ intel_report_gpu() {
   local total
   total=$(( $(wc -l < "$OUTPUT") - INTEL_GPU_SKIP ))
   (( total > 0 )) || return 0
-  printf '\n%d amostras gravadas.\n' "$total" >&2
+  msg report_samples "$total" >&2
   return 0
 }
 

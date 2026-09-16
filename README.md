@@ -234,6 +234,29 @@ fabricante é testado em duas gerações (moderna e antiga), porque é na antiga
 onde faltam métricas, que o contrato de colunas vazias é posto à prova.
 Detalhes em [tests/README.md](tests/README.md).
 
+## Idioma
+
+O texto que aparece em execução — ajuda, erros, banner e resumos — segue o
+locale do sistema. Português e inglês estão traduzidos; qualquer outro locale
+cai para inglês.
+
+```bash
+LANG=en_US.UTF-8 ./monitor.sh --help   # inglês
+LANG=pt_BR.UTF-8 ./monitor.sh --help   # português
+MONITOR_LANG=en ./monitor.sh --help    # força, ignorando o locale
+```
+
+A detecção segue a precedência POSIX (`LC_ALL` > `LC_MESSAGES` > `LANG`), com
+`MONITOR_LANG` acima de todas. Os catálogos ficam em `lib/i18n/<idioma>.sh`;
+adicionar um idioma é adicionar um arquivo, e o que faltar nele cai para o
+inglês em vez de deixar buracos.
+
+**O CSV não muda com o idioma.** Cabeçalhos e separador decimal são formato de
+dados, não texto — do contrário duas coletas da mesma máquina deixariam de ser
+comparáveis. Há um teste dedicado a isso.
+
+Os comentários do código seguem em português.
+
 ## Estrutura do código
 
 ```
@@ -248,6 +271,8 @@ lib/
 ├── filter.sh           alvos de --filter
 ├── disk.sh             coleta de disco (não depende de GPU)
 ├── report.sh           banner, resumos, rodapé
+├── i18n.sh             detecção de idioma e catálogo
+├── i18n/               mensagens e ajuda por idioma
 └── backends/
     ├── nvidia.sh       via nvidia-smi — implementado
     ├── amd.sh          via sysfs amdgpu — implementado (sem VRAM/processo)

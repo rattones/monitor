@@ -11,7 +11,10 @@ summarize_proc() {
   (( TOP_N > 0 )) || return 0
   [[ -s "$PROCS_OUT" ]] || return 0
 
-  LC_ALL=C awk -F, -v skip="$PROCS_SKIP" -v top="$TOP_N" '
+  # m_top ja vem com o numero expandido: o awk so o imprime. O LC_ALL=C continua
+  # governando a formatacao numerica, que independe do idioma do texto.
+  LC_ALL=C awk -F, -v skip="$PROCS_SKIP" -v top="$TOP_N" \
+               -v m_top="$(msg awk_top_procs "$TOP_N")" '
   NR <= skip { next }
   {
     key = $3 " " $5 " " $4
@@ -20,7 +23,7 @@ summarize_proc() {
   }
   END {
     if (!length(sum)) exit
-    printf("\ntop %d processos por VRAM (media / pico):\n", top)
+    printf("\n%s:\n", m_top)
     # Ordenacao por selecao: o numero de processos com contexto na GPU e pequeno.
     for (i = 1; i <= top; i++) {
       best = ""; bestv = -1
@@ -41,7 +44,13 @@ summarize_proc() {
 summarize_disk() {
   [[ -s "$DISK_OUT" ]] || return 0
 
-  LC_ALL=C awk -F, -v skip="$DISK_SKIP" '
+  # "leitura"/"escrita" sairam da linha e foram para o cabecalho: como rotulo
+  # traduzido eles teriam largura variavel e empurrariam as colunas seguintes
+  # de um idioma para outro. No cabecalho, a tabela fica alinhada em qualquer
+  # idioma - e sobram duas flags em vez de quatro.
+  LC_ALL=C awk -F, -v skip="$DISK_SKIP" \
+               -v m_hdr="$(msg awk_disk_header)" \
+               -v m_nosensor="$(msg awk_no_sensor)" '
   NR <= skip { next }
   {
     d = $2; n[d]++
@@ -53,10 +62,10 @@ summarize_disk() {
   }
   END {
     if (!length(n)) exit
-    print "\ndisco (media / pico):"
+    printf("\n%s:\n", m_hdr)
     for (d in n) {
-      t = (tn[d] ? sprintf("%.1f / %.1f C", ts[d] / tn[d], tp[d]) : "sem sensor")
-      printf("  %-10s leitura %6.1f / %6.1f MB/s   escrita %6.1f / %6.1f MB/s   temp %s\n",
+      t = (tn[d] ? sprintf("%.1f / %.1f C", ts[d] / tn[d], tp[d]) : m_nosensor)
+      printf("  %-10s %6.1f / %6.1f MB/s   %6.1f / %6.1f MB/s   temp %s\n",
              d, rs[d] / n[d], rp[d], ws[d] / n[d], wp[d], t)
     }
   }
@@ -66,23 +75,23 @@ summarize_disk() {
 print_banner() {
   (( QUIET )) && return 0
   if (( WANT_GPU || WANT_PROC )); then
-    printf 'GPU: %s (%s)\n' "$(backend_call name)" \
-      "$( (( GPU_COUNT == 1 )) && echo "1 placa" || echo "$GPU_COUNT placas" )"
+    msg report_gpu "$(backend_call name)" \
+      "$( (( GPU_COUNT == 1 )) && msg report_one_card || msg report_n_cards "$GPU_COUNT" )"
   fi
-  (( WANT_GPU ))  && printf 'gravando em: %s\n' "$OUTPUT"
-  (( WANT_PROC )) && printf 'processos em: %s (%s%s)\n' \
-    "$PROCS_OUT" "$PROCS_MODE" "${FILTER_RAW:+, filtro: $FILTER_RAW}"
-  (( WANT_DISK )) && printf 'disco em: %s (%s)\n' "$DISK_OUT" "${DISK_DEVS//;/, }"
-  printf 'intervalo: %sms | duracao: %s | Ctrl+C para parar\n\n' \
-    "$INTERVAL_MS" "$( [[ "$DURATION" == 0 ]] && echo ilimitada || echo "${DURATION}s" )"
+  (( WANT_GPU ))  && msg report_writing_to "$OUTPUT"
+  (( WANT_PROC )) && msg report_procs_to \
+    "$PROCS_OUT" "$PROCS_MODE" "${FILTER_RAW:+$(msg report_filter_suffix "$FILTER_RAW")}"
+  (( WANT_DISK )) && msg report_disk_to "$DISK_OUT" "${DISK_DEVS//;/, }"
+  msg report_interval \
+    "$INTERVAL_MS" "$( [[ "$DURATION" == 0 ]] && msg report_unlimited || printf '%ss' "$DURATION" )"
   return 0
 }
 
 print_footer() {
   (( QUIET )) && return 0
   printf '\n'
-  (( WANT_GPU ))  && printf 'CSV: %s\n' "$OUTPUT"
-  (( WANT_PROC )) && printf 'CSV processos: %s\n' "$PROCS_OUT"
-  (( WANT_DISK )) && printf 'CSV disco: %s\n' "$DISK_OUT"
+  (( WANT_GPU ))  && msg report_csv "$OUTPUT"
+  (( WANT_PROC )) && msg report_csv_procs "$PROCS_OUT"
+  (( WANT_DISK )) && msg report_csv_disk "$DISK_OUT"
   return 0
 }

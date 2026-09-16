@@ -61,7 +61,8 @@ nvidia_start_gpu() {
 
   # LC_ALL=C: sem isso um locale pt_BR faz o %.1f do awk emitir virgula decimal,
   # o que parte a coluna vram_used_pct em duas no CSV.
-  LC_ALL=C awk -v out="$OUTPUT" -v names="$NVIDIA_NAMES" -v quiet="$QUIET" '
+  LC_ALL=C awk -v out="$OUTPUT" -v names="$NVIDIA_NAMES" -v quiet="$QUIET" \
+               -v m_samples="$(msg_raw awk_samples)" '
   BEGIN {
     FS = " *, *"
     n = split(names, pairs, ";")
@@ -98,7 +99,7 @@ nvidia_start_gpu() {
   }
 
   END {
-    if (!quiet) printf("\n%d amostras gravadas.\n", rows) > "/dev/stderr"
+    if (!quiet) printf("\n" m_samples "\n", rows) > "/dev/stderr"
   }
   ' < "$fifo" &
   GPU_AWK_PID=$!

@@ -219,7 +219,7 @@ eq "filtro por PID: so o alvo" \
    "$(awk -F, 'NR>1 {print $3}' "$pcsv4" | sort -u | paste -sd,)" "60282" "$out"
 
 out=$(run_monitor proc -b nvidia -f naoexiste -d 1 -o "$TMP/nv_fnone.csv")
-contains "filtro sem match: avisa" "$out" "nenhum processo casou"
+contains "filtro sem match: avisa" "$out" "no process matched"
 
 # ===========================================================================
 group "AMD - moderna (RX 7800 XT: reporta tudo)"
@@ -486,6 +486,97 @@ if runs "SIGTERM: backend sem produtor encerra"; then
   if (( died )); then ok "SIGTERM: backend sem produtor encerra"
   else kill -9 "$p" 2>/dev/null; no "SIGTERM: backend sem produtor encerra" "travou"; fi
   unset MONITOR_DRM_ROOT
+fi
+
+# ===========================================================================
+group "i18n"
+# ===========================================================================
+
+export MOCK_PROFILE=nvidia_moderna MOCK_SAMPLES=3
+
+if runs "i18n: LANG=en da mensagem em ingles"; then
+  out=$(env PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
+        LC_ALL= LC_MESSAGES= LANG=en_US.UTF-8 "$MONITOR" -i 2>&1)
+  contains "i18n: LANG=en da mensagem em ingles" "$out" "requires a value"
+fi
+
+if runs "i18n: LANG=pt da mensagem em portugues"; then
+  out=$(env PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
+        LC_ALL= LC_MESSAGES= LANG=pt_BR.UTF-8 "$MONITOR" -i 2>&1)
+  contains "i18n: LANG=pt da mensagem em portugues" "$out" "exige um valor"
+fi
+
+# pt_PT tambem e portugues: o codigo do pais nao entra na escolha do catalogo.
+if runs "i18n: pt_PT usa o catalogo pt"; then
+  out=$(env PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
+        LC_ALL= LC_MESSAGES= LANG=pt_PT "$MONITOR" -i 2>&1)
+  contains "i18n: pt_PT usa o catalogo pt" "$out" "exige um valor"
+fi
+
+# Idioma sem catalogo cai para ingles, e nao para o portugues de origem.
+if runs "i18n: locale sem catalogo cai para ingles"; then
+  out=$(env PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
+        LC_ALL= LC_MESSAGES= LANG=fr_FR.UTF-8 "$MONITOR" -i 2>&1)
+  contains "i18n: locale sem catalogo cai para ingles" "$out" "requires a value"
+fi
+
+# "C" significa "sem localizacao", o que aqui e ingles.
+if runs "i18n: LANG=C da ingles"; then
+  out=$(env PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
+        LC_ALL= LC_MESSAGES= LANG=C "$MONITOR" -i 2>&1)
+  contains "i18n: LANG=C da ingles" "$out" "requires a value"
+fi
+
+# Precedencia POSIX: LC_ALL manda em LANG.
+if runs "i18n: LC_ALL vence LANG"; then
+  out=$(env PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
+        LC_MESSAGES= LC_ALL=pt_BR.UTF-8 LANG=en_US.UTF-8 "$MONITOR" -i 2>&1)
+  contains "i18n: LC_ALL vence LANG" "$out" "exige um valor"
+fi
+
+# MONITOR_LANG vence tudo - e o que a propria suite usa.
+if runs "i18n: MONITOR_LANG vence o locale"; then
+  out=$(env PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
+        MONITOR_LANG=pt LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 "$MONITOR" -i 2>&1)
+  contains "i18n: MONITOR_LANG vence o locale" "$out" "exige um valor"
+fi
+
+if runs "i18n: ajuda acompanha o idioma"; then
+  o_en=$(env PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
+         MONITOR_LANG=en "$MONITOR" --help 2>&1 | head -1)
+  o_pt=$(env PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
+         MONITOR_LANG=pt "$MONITOR" --help 2>&1 | head -1)
+  if [[ "$o_en" == *"process and disk monitor"* && "$o_pt" == *"processos e disco"* ]]; then
+    ok "i18n: ajuda acompanha o idioma"
+  else
+    no "i18n: ajuda acompanha o idioma" "cabecalho nao mudou" "en: $o_en
+pt: $o_pt"
+  fi
+fi
+
+# O mais importante do grupo: o CSV e formato de dados, nao texto. Nem o
+# cabecalho nem o separador decimal podem mudar com o idioma - senao duas
+# coletas da mesma maquina deixariam de ser comparaveis.
+if runs "i18n: CSV nao muda com o idioma"; then
+  env PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" MONITOR_LANG=en \
+      "$MONITOR" gpu -b nvidia -d 1 -q -o "$TMP/l_en.csv" >/dev/null 2>&1
+  env PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" MONITOR_LANG=pt \
+      "$MONITOR" gpu -b nvidia -d 1 -q -o "$TMP/l_pt.csv" >/dev/null 2>&1
+  h_en=$(head -1 "$TMP/l_en.csv"); h_pt=$(head -1 "$TMP/l_pt.csv")
+  v_en=$(field "$TMP/l_en.csv" 9); v_pt=$(field "$TMP/l_pt.csv" 9)
+  if [[ "$h_en" == "$h_pt" && "$v_en" == "26.1" && "$v_pt" == "26.1" ]]; then
+    ok "i18n: CSV nao muda com o idioma"
+  else
+    no "i18n: CSV nao muda com o idioma" \
+       "cabecalho ou separador decimal divergiu" "en: $v_en / pt: $v_pt"
+  fi
+fi
+
+# Uma chave inexistente tem de aparecer, nao sumir.
+if runs "i18n: chave desconhecida fica visivel"; then
+  out=$(cd "$ROOT" && bash -c '
+    LIB_DIR=lib; . lib/i18n.sh; i18n_init; msg chave_que_nao_existe')
+  eq "i18n: chave desconhecida fica visivel" "$out" "<chave_que_nao_existe>"
 fi
 
 # ===========================================================================

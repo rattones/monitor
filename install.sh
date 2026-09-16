@@ -17,6 +17,11 @@
 #   ./install.sh --uninstall    # remove
 #
 # Os CSVs nao ficam aqui: vao para ~/.monitor/log de quem roda o comando.
+#
+# As mensagens deste arquivo ficam em ingles literal, sem passar pelo catalogo
+# de lib/i18n/: o instalador roda ANTES de existir instalacao, e faze-lo
+# carregar o catalogo significaria dar bootstrap num lib/ que ainda pode nem
+# estar no lugar. Para ~30 mensagens, nao se paga. O monitor em si e traduzido.
 
 set -uo pipefail
 
@@ -28,29 +33,29 @@ MODE="copy"      # copy | link
 ACTION="install" # install | uninstall
 FORCE=0
 
-die() { printf 'erro: %s\n' "$1" >&2; exit 1; }
+die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 info() { printf '%s\n' "$1"; }
 
 usage() {
   cat <<EOF
-install.sh - instala o $NAME como comando do sistema
+install.sh - install $NAME as a system command
 
-Uso: ${0##*/} [opcoes]
+Usage: ${0##*/} [options]
 
-  --system          Instala em /usr/local (todos os usuarios; precisa de root)
-  --user            Instala em ~/.local (padrao; nao precisa de root)
-  --prefix DIR      Instala num prefixo especifico
-  --link            Aponta para este diretorio em vez de copiar (desenvolvimento)
-  --uninstall       Remove a instalacao
-  --force           Sobrescreve um destino existente sem perguntar
-  -h, --help        Mostra esta ajuda
+  --system          Install into /usr/local (all users; needs root)
+  --user            Install into ~/.local (default; no root needed)
+  --prefix DIR      Install into a specific prefix
+  --link            Point at this directory instead of copying (development)
+  --uninstall       Remove the installation
+  --force           Overwrite an existing target without asking
+  -h, --help        Show this help
 
-Onde cada coisa vai:
-  <prefixo>/bin/$NAME          o comando
-  <prefixo>/lib/$NAME/         o monitor.sh e o lib/
+Where things go:
+  <prefix>/bin/$NAME          the command
+  <prefix>/lib/$NAME/         monitor.sh and lib/
 
-Os CSVs vao para \$HOME/.monitor/log de quem executa o comando, e nao sao
-tocados pela instalacao nem pela remocao.
+The CSVs go to \$HOME/.monitor/log of whoever runs the command, and are
+untouched by installing or removing.
 EOF
 }
 
@@ -60,13 +65,13 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --system)    PREFIX="/usr/local"; shift ;;
     --user)      PREFIX="$HOME/.local"; shift ;;
-    --prefix)    [[ $# -ge 2 ]] || die "a opcao $1 exige um valor"
+    --prefix)    [[ $# -ge 2 ]] || die "option $1 requires a value"
                  PREFIX="$2"; shift 2 ;;
     --link)      MODE="link"; shift ;;
     --uninstall) ACTION="uninstall"; shift ;;
     --force)     FORCE=1; shift ;;
     -h|--help)   usage; exit 0 ;;
-    *) die "opcao desconhecida: $1 (use --help)" ;;
+    *) die "unknown option: $1 (use --help)" ;;
   esac
 done
 
@@ -86,43 +91,44 @@ CMD="$BIN_DIR/$NAME"
 if [[ "$ACTION" == uninstall ]]; then
   removed=0
   if [[ -e "$CMD" ]]; then
-    rm -f "$CMD" || die "nao consegui remover $CMD"
-    info "removido: $CMD"; removed=1
+    rm -f "$CMD" || die "could not remove $CMD"
+    info "removed: $CMD"; removed=1
   fi
   if [[ -d "$LIB_DEST" ]]; then
-    rm -rf "$LIB_DEST" || die "nao consegui remover $LIB_DEST"
-    info "removido: $LIB_DEST"; removed=1
+    rm -rf "$LIB_DEST" || die "could not remove $LIB_DEST"
+    info "removed: $LIB_DEST"; removed=1
   fi
-  (( removed )) || info "nada a remover em $PREFIX"
+  (( removed )) || info "nothing to remove in $PREFIX"
   info ""
-  info "os CSVs em \$HOME/.monitor/log foram mantidos."
+  info "the CSVs in \$HOME/.monitor/log were kept."
   exit 0
 fi
 
 # --- verificacoes ----------------------------------------------------------
 
-[[ -r "$SRC_DIR/monitor.sh" ]] || die "nao achei o monitor.sh em $SRC_DIR"
-[[ -d "$SRC_DIR/lib" ]] || die "nao achei o lib/ em $SRC_DIR"
+[[ -r "$SRC_DIR/monitor.sh" ]] || die "could not find monitor.sh in $SRC_DIR"
+[[ -d "$SRC_DIR/lib" ]] || die "could not find lib/ in $SRC_DIR"
 
 # Um bash muito antigo nao tem mapfile, usado na descoberta de discos.
 if (( BASH_VERSINFO[0] < 4 )); then
-  die "o monitor precisa de bash 4.0+ (aqui e ${BASH_VERSION})"
+  die "monitor needs bash 4.0+ (this is ${BASH_VERSION})"
 fi
 
 # Sintaxe conferida antes de instalar: melhor falhar agora do que deixar um
 # comando quebrado no PATH.
-for f in "$SRC_DIR/monitor.sh" "$SRC_DIR"/lib/*.sh "$SRC_DIR"/lib/backends/*.sh; do
-  bash -n "$f" 2>/dev/null || die "erro de sintaxe em $f - instalacao abortada"
+for f in "$SRC_DIR/monitor.sh" "$SRC_DIR"/lib/*.sh "$SRC_DIR"/lib/backends/*.sh \
+         "$SRC_DIR"/lib/i18n/*.sh; do
+  bash -n "$f" 2>/dev/null || die "syntax error in $f - install aborted"
 done
 
-mkdir -p "$BIN_DIR" || die "nao consegui criar $BIN_DIR (falta sudo?)"
-[[ -w "$BIN_DIR" ]] || die "sem permissao de escrita em $BIN_DIR (tente sudo ./install.sh --system)"
+mkdir -p "$BIN_DIR" || die "could not create $BIN_DIR (need sudo?)"
+[[ -w "$BIN_DIR" ]] || die "no write permission in $BIN_DIR (try sudo ./install.sh --system)"
 
 if [[ -e "$CMD" ]] && (( ! FORCE )); then
   # Reinstalar por cima da propria instalacao e o caso comum (atualizar), entao
   # so pergunta quando o destino e algo que este script nao reconhece.
   if ! grep -q "MONITOR_LIB_DIR" "$CMD" 2>/dev/null; then
-    die "$CMD ja existe e nao parece ser do monitor - use --force para sobrescrever"
+    die "$CMD already exists and does not look like monitor's - use --force to overwrite"
   fi
 fi
 
@@ -135,14 +141,14 @@ if [[ "$MODE" == link ]]; then
   TARGET_MAIN="$SRC_DIR/monitor.sh"
   rm -rf "$LIB_DEST" 2>/dev/null
 else
-  mkdir -p "$LIB_DEST" || die "nao consegui criar $LIB_DEST (falta sudo?)"
-  [[ -w "$LIB_DEST" ]] || die "sem permissao de escrita em $LIB_DEST"
+  mkdir -p "$LIB_DEST" || die "could not create $LIB_DEST (need sudo?)"
+  [[ -w "$LIB_DEST" ]] || die "no write permission in $LIB_DEST"
 
   # rm antes de copiar: sem isso, um backend removido de uma versao para outra
   # ficaria para tras no destino e a autodeteccao continuaria enxergando ele.
   rm -rf "${LIB_DEST:?}/lib" "${LIB_DEST:?}/monitor.sh"
-  cp -R "$SRC_DIR/lib" "$LIB_DEST/lib" || die "nao consegui copiar o lib/"
-  cp "$SRC_DIR/monitor.sh" "$LIB_DEST/monitor.sh" || die "nao consegui copiar o monitor.sh"
+  cp -R "$SRC_DIR/lib" "$LIB_DEST/lib" || die "could not copy lib/"
+  cp "$SRC_DIR/monitor.sh" "$LIB_DEST/monitor.sh" || die "could not copy monitor.sh"
   chmod 0755 "$LIB_DEST/monitor.sh"
 
   TARGET_LIB="$LIB_DEST/lib"
@@ -152,21 +158,21 @@ fi
 # O lancador: fixa onde esta o lib/ e repassa os argumentos. "exec" para o
 # monitor herdar o PID, e nao ficar um bash extra no meio - o que importa para
 # o Ctrl+C chegar em quem esta coletando.
-cat > "$CMD" <<LAUNCHER || die "nao consegui escrever $CMD"
+cat > "$CMD" <<LAUNCHER || die "could not write $CMD"
 #!/usr/bin/env bash
 # gerado por install.sh - nao edite; reinstale para atualizar
 export MONITOR_LIB_DIR="$TARGET_LIB"
 exec "$TARGET_MAIN" "\$@"
 LAUNCHER
-chmod 0755 "$CMD" || die "nao consegui tornar $CMD executavel"
+chmod 0755 "$CMD" || die "could not make $CMD executable"
 
 # --- resultado -------------------------------------------------------------
 
-info "instalado: $CMD"
+info "installed: $CMD"
 if [[ "$MODE" == link ]]; then
-  info "           (modo --link: usa $SRC_DIR diretamente)"
+  info "           (--link mode: uses $SRC_DIR directly)"
 else
-  info "           bibliotecas em $LIB_DEST"
+  info "           libraries in $LIB_DEST"
 fi
 info ""
 
@@ -175,13 +181,13 @@ info ""
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *)
-    info "atencao: $BIN_DIR nao esta no seu PATH."
-    info "  adicione ao ~/.bashrc (ou ~/.zshrc):"
+    info "warning: $BIN_DIR is not in your PATH."
+    info "  add to ~/.bashrc (or ~/.zshrc):"
     info "    export PATH=\"$BIN_DIR:\$PATH\""
     info ""
     ;;
 esac
 
-info "logs em: \$HOME/.monitor/log  (sobrepoe com MONITOR_LOG_DIR)"
+info "logs in: \$HOME/.monitor/log  (override with MONITOR_LOG_DIR)"
 info ""
-info "teste com:  $NAME --version"
+info "test with:  $NAME --version"

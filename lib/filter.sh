@@ -70,9 +70,9 @@ warn_empty_filter() {
   [[ -n "$FILTER_RAW" ]] || return 0
   (( $(wc -l < "$PROCS_OUT") <= PROCS_SKIP )) || return 0
 
-  printf '\naviso: nenhum processo casou com o filtro "%s".\n' "$FILTER_RAW" >&2
+  msg filter_no_match "$FILTER_RAW" >&2
   local seen
   seen=$(backend_call list_procs 2>/dev/null | sort -u | paste -sd" ")
-  [[ -n "$seen" ]] && printf 'processos na GPU agora: %s\n' "$seen" >&2
+  [[ -n "$seen" ]] && msg filter_on_gpu_now "$seen" >&2
   return 0
 }

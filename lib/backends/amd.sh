@@ -321,7 +321,7 @@ amd_report_gpu() {
   local total
   total=$(( $(wc -l < "$OUTPUT") - AMD_GPU_SKIP ))
   (( total > 0 )) || return 0
-  printf '\n%d amostras gravadas.\n' "$total" >&2
+  msg report_samples "$total" >&2
   return 0
 }
 

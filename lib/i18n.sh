@@ -72,6 +72,15 @@ msg() {
   printf -- "$fmt" "$@"
 }
 
+# msg_raw <chave> - devolve o texto SEM passar pelo printf.
+#
+# Para mensagens cujos placeholders serao expandidos por outro programa: um
+# formato passado ao awk por -v precisa chegar la com o "%d" intacto, e o msg()
+# comum o consumiria aqui, imprimindo zero.
+msg_raw() {
+  printf '%s' "${MSG[$1]:-<$1>}"
+}
+
 # Texto da ajuda. E prosa longa com interpolacao ($VERSION, $LOG_DIR), entao
 # mora num arquivo por idioma em vez de virar ~90 entradas de array.
 usage_text() {
