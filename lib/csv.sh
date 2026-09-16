@@ -20,7 +20,7 @@ DISK_CSV_HEADER="timestamp,device,read_mb_s,write_mb_s,read_iops,write_iops,util
 # So escreve cabecalho em arquivo novo/vazio, para permitir append entre sessoes.
 init_csv() {
   local file="$1" header="$2"
-  [[ -s "$file" ]] || printf '%s\n' "$header" > "$file" || die "nao consegui escrever em $file"
+  [[ -s "$file" ]] || printf '%s\n' "$header" > "$file" || die "$(msg csv_write_failed "$file")"
 }
 
 # Resolve os tres nomes de arquivo a partir de --output e abre so os que os
@@ -28,10 +28,10 @@ init_csv() {
 # comeca, para o resumo final nao somar linhas de coletas anteriores.
 setup_outputs() {
   if [[ -z "$OUTPUT" ]]; then
-    mkdir -p "$LOG_DIR" || die "nao consegui criar $LOG_DIR"
+    mkdir -p "$LOG_DIR" || die "$(msg csv_mkdir_failed "$LOG_DIR")"
     OUTPUT="$LOG_DIR/monitor-$(date +%Y%m%d-%H%M%S).csv"
   fi
-  mkdir -p "$(dirname -- "$OUTPUT")" || die "nao consegui criar $(dirname -- "$OUTPUT")"
+  mkdir -p "$(dirname -- "$OUTPUT")" || die "$(msg csv_mkdir_failed "$(dirname -- "$OUTPUT")")"
 
   PROCS_OUT="${OUTPUT%.csv}-procs.csv"
   DISK_OUT="${OUTPUT%.csv}-disk.csv"

@@ -167,7 +167,7 @@ amd_init() {
     idx=$((idx + 1))
   done
 
-  [[ -n "$AMD_CARDS" ]] || die "nenhuma GPU AMD encontrada${GPU_IDX:+ no indice $GPU_IDX}"
+  [[ -n "$AMD_CARDS" ]] || die "$(msg amd_no_gpu "${GPU_IDX:+$(msg nvidia_at_index "$GPU_IDX")}")"
 }
 
 amd_start_gpu() {
@@ -326,7 +326,7 @@ amd_report_gpu() {
 }
 
 amd_start_proc() {
-  die "backend AMD nao coleta VRAM por processo (use --procs off ou o subcomando gpu)"
+  die "$(msg backend_no_procs AMD)"
 
   # TODO: varrer /proc/*/fdinfo/* procurando descritores de /dev/dri/* e somar
   # as linhas "drm-memory-vram:" por PID, como o nvtop faz. Respeitar

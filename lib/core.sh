@@ -3,7 +3,11 @@
 # core.sh - utilidades comuns a todos os modulos: erro, ciclo de vida dos
 # processos filhos e espera por sinal.
 
-die() { printf 'erro: %s\n' "$1" >&2; exit 1; }
+# O prefixo vem do catalogo, entao "erro:"/"error:" acompanha o idioma. A
+# mensagem vai como argumento do proprio msg(), e nao por um printf externo:
+# expandir duas vezes consumiria o %s do prefixo na primeira passada e a
+# mensagem sumiria.
+die() { msg core_error_prefix "$1" >&2; exit 1; }
 
 # Roda um comando pelo tempo de --duration, ou sem limite quando ela e 0.
 #
@@ -67,8 +71,8 @@ FIFOS=()
 FIFO_PATH=""
 make_fifo() {
   local prefix="${1:-gpumon}"
-  FIFO_PATH=$(mktemp -u -t "$prefix.XXXXXXXX") || die "nao consegui gerar o nome do FIFO"
-  mkfifo "$FIFO_PATH" || die "nao consegui criar o FIFO $FIFO_PATH"
+  FIFO_PATH=$(mktemp -u -t "$prefix.XXXXXXXX") || die "$(msg core_fifo_name)"
+  mkfifo "$FIFO_PATH" || die "$(msg core_fifo_create "$FIFO_PATH")"
   FIFOS+=("$FIFO_PATH")
 }
 

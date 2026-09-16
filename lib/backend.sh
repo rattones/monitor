@@ -135,15 +135,15 @@ backend_load() {
   local file="$LIB_DIR/backends/$be.sh"
   local fn missing=()
 
-  [[ -r "$file" ]] || die "backend desconhecido: $be (procurei em $file)"
+  [[ -r "$file" ]] || die "$(msg backend_unknown "$be" "$file")"
   # shellcheck source=/dev/null
-  . "$file" || die "nao consegui carregar o backend $be"
+  . "$file" || die "$(msg backend_load_failed "$be")"
 
   for fn in "${BACKEND_REQUIRED_FUNCS[@]}"; do
     declare -F "${be}_${fn}" >/dev/null || missing+=("${be}_${fn}")
   done
   (( ${#missing[@]} == 0 )) \
-    || die "o backend $be nao implementa: ${missing[*]}"
+    || die "$(msg backend_incomplete "$be" "${missing[*]}")"
 
   BACKEND="$be"
 }

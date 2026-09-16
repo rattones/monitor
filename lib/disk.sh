@@ -41,18 +41,18 @@ resolve_disks() {
   local _disks=() _d
   if [[ "$DISK_MODE" == all ]]; then
     mapfile -t _disks < <(list_disks)
-    (( ${#_disks[@]} )) || die "nenhum disco fisico encontrado (use --disk off)"
+    (( ${#_disks[@]} )) || die "$(msg disk_none_found)"
   else
     IFS=, read -ra _disks <<< "$DISK_MODE"
   fi
   for _d in "${_disks[@]}"; do
     _d="$(printf '%s' "$_d" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
     [[ -n "$_d" ]] || continue
-    [[ -r "/sys/block/$_d/stat" ]] || die "disco desconhecido: $_d (veja lsblk -d)"
+    [[ -r "/sys/block/$_d/stat" ]] || die "$(msg disk_unknown "$_d")"
     DISK_DEVS="${DISK_DEVS:+$DISK_DEVS;}$_d"
     DISK_TEMPS="${DISK_TEMPS:+$DISK_TEMPS;}$_d=$(disk_temp_file "$_d")"
   done
-  [[ -n "$DISK_DEVS" ]] || die "nenhum disco selecionado em --disk"
+  [[ -n "$DISK_DEVS" ]] || die "$(msg disk_none_selected)"
 }
 
 # Aqui nao ha produtor externo: /proc e /sys sao arquivos, entao o proprio awk

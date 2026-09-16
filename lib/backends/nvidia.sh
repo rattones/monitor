@@ -20,8 +20,8 @@ nvidia_probe() {
 nvidia_supports_procs() { return 0; }
 
 nvidia_init() {
-  command -v nvidia-smi >/dev/null 2>&1 || die "nvidia-smi nao encontrado - driver NVIDIA instalado?"
-  nvidia-smi -L >/dev/null 2>&1 || die "nvidia-smi nao conseguiu falar com o driver"
+  command -v nvidia-smi >/dev/null 2>&1 || die "$(msg nvidia_not_found)"
+  nvidia-smi -L >/dev/null 2>&1 || die "$(msg nvidia_no_driver)"
 
   NVIDIA_SMI_TARGET=()
   [[ -n "$GPU_IDX" ]] && NVIDIA_SMI_TARGET=(-i "$GPU_IDX")
@@ -32,14 +32,14 @@ nvidia_init() {
   local list
   if ! list=$(nvidia-smi "${NVIDIA_SMI_TARGET[@]}" --query-gpu=index,name,gpu_bus_id \
               --format=csv,noheader 2>&1); then
-    die "nvidia-smi nao conseguiu listar a GPU${GPU_IDX:+ de indice $GPU_IDX}: $list"
+    die "$(msg nvidia_list_failed "${GPU_IDX:+$(msg nvidia_of_index "$GPU_IDX")}" "$list")"
   fi
 
   # Nome e bus id nao mudam durante a coleta: le uma vez e repassa aos awks como
   # mapas "chave=valor;chave=valor", evitando campos de texto dentro do loop.
   NVIDIA_NAMES=$(printf '%s\n' "$list" \
     | awk -F', *' '$1 ~ /^[0-9]+$/ { printf "%s%s=%s", sep, $1, $2; sep=";" }')
-  [[ -n "$NVIDIA_NAMES" ]] || die "nenhuma GPU encontrada${GPU_IDX:+ no indice $GPU_IDX}"
+  [[ -n "$NVIDIA_NAMES" ]] || die "$(msg nvidia_no_gpu "${GPU_IDX:+$(msg nvidia_at_index "$GPU_IDX")}")"
 
   # A secao de processos identifica a placa por bus id, nao por indice.
   NVIDIA_BUSMAP=$(printf '%s\n' "$list" \

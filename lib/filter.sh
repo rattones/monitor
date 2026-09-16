@@ -16,7 +16,7 @@ FILTER_CMDS=""    # subconjunto dos alvos que so fazem sentido na linha completa
 # comparacao exata; nomes vao em minusculas, para casar por trecho no awk.
 add_filter() {
   local raw="${1-}" item kind
-  [[ -n "$raw" ]] || die "--filter exige ao menos um PID ou nome"
+  [[ -n "$raw" ]] || die "$(msg filter_needs_target)"
   FILTER_RAW="${FILTER_RAW:+$FILTER_RAW,}$raw"
 
   local IFS=,
@@ -29,14 +29,14 @@ add_filter() {
       pid:*)  kind=pid;  item="${item#pid:}" ;;
       name:*) kind=name; item="${item#name:}" ;;
     esac
-    [[ -n "$item" ]] || die "alvo vazio em --filter"
+    [[ -n "$item" ]] || die "$(msg filter_empty_target)"
 
     if [[ "$kind" == auto ]]; then
       [[ "$item" =~ ^[0-9]+$ ]] && kind=pid || kind=name
     fi
 
     if [[ "$kind" == pid ]]; then
-      [[ "$item" =~ ^[0-9]+$ ]] || die "PID invalido em --filter: $item"
+      [[ "$item" =~ ^[0-9]+$ ]] || die "$(msg filter_bad_pid "$item")"
       FILTER_PIDS="${FILTER_PIDS:-;}$item;"
       continue
     fi
@@ -52,7 +52,7 @@ add_filter() {
     case "$item" in
       *...) item="${item%...}"; wide=1 ;;
     esac
-    [[ -n "$item" ]] || die "alvo vazio em --filter"
+    [[ -n "$item" ]] || die "$(msg filter_empty_target)"
     case "$item" in
       */*|*' '*) wide=1 ;;
     esac

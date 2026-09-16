@@ -26,13 +26,17 @@ SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${
 SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)"
 LIB_DIR="${MONITOR_LIB_DIR:-$SCRIPT_DIR/lib}"
 
-# A ordem importa: core.sh define o die() que os outros usam, e backend.sh
-# define o backend_call() de que filter.sh e report.sh dependem.
-for _m in core backend csv filter args disk report; do
+# A ordem importa: i18n.sh vem primeiro porque o die() de core.sh usa msg();
+# core.sh define esse die(), que todos os outros usam; e backend.sh define o
+# backend_call() de que filter.sh e report.sh dependem.
+for _m in i18n core backend csv filter args disk report; do
   # shellcheck source=/dev/null
-  . "$LIB_DIR/$_m.sh" || { printf 'erro: nao consegui carregar lib/%s.sh\n' "$_m" >&2; exit 1; }
+  . "$LIB_DIR/$_m.sh" || { printf 'error: could not load lib/%s.sh\n' "$_m" >&2; exit 1; }
 done
 unset _m
+
+# Carrega o catalogo do idioma detectado antes de qualquer mensagem sair.
+i18n_init
 
 usage() {
   cat <<EOF
@@ -149,7 +153,7 @@ setup_backend() {
   if [[ -n "$GPU_BACKEND" ]]; then
     backend_load "$GPU_BACKEND"
   else
-    backend_detect || die "nenhuma GPU reconhecida (backends: $(backend_list | paste -sd' ')) - use --backend para forcar"
+    backend_detect || die "$(msg backend_none_detected "$(backend_list | paste -sd' ')")"
   fi
 
   backend_call init
@@ -157,7 +161,7 @@ setup_backend() {
   # Um backend que nao sabe atribuir VRAM por processo deve dizer isso antes da
   # coleta, em vez de gerar um CSV com so o cabecalho.
   if (( WANT_PROC )) && ! backend_call supports_procs; then
-    die "o backend $(backend_call name) nao coleta VRAM por processo (use --procs off ou o subcomando gpu)"
+    die "$(msg backend_no_procs "$(backend_call name)")"
   fi
 }
 

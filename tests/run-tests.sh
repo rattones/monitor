@@ -79,8 +79,13 @@ rows() { local n; n=$(wc -l < "$1" 2>/dev/null || echo 1); echo $(( n - 1 )); }
 
 # Roda o monitor com o PATH apontando para os mocks. O sysfs falso entra por
 # MOCK_SYSFS, que os backends AMD/Intel leem via MONITOR_DRM_ROOT.
+#
+# MONITOR_LANG=en fixa o idioma: varias assercoes abaixo casam com o texto das
+# mensagens, entao sem isto a suite passaria ou falharia conforme o $LANG de
+# quem a roda.
 run_monitor() {
-  PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" "$MONITOR" "$@" 2>&1
+  PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" MONITOR_LANG=en \
+    "$MONITOR" "$@" 2>&1
 }
 
 # ===========================================================================
@@ -324,7 +329,7 @@ if runs "contrato: backends sem proc recusam"; then
   # passaria a medir outra coisa.
   o1=$(MONITOR_DRM_ROOT="$TMP/sys_amd_moderna/class/drm" run_monitor proc -b amd -d 1 2>&1)
   o2=$(MONITOR_DRM_ROOT="$TMP/sys_intel_moderna/class/drm" run_monitor proc -b intel -d 1 2>&1)
-  if [[ "$o1" == *"nao coleta VRAM por processo"* && "$o2" == *"nao coleta VRAM por processo"* ]]; then
+  if [[ "$o1" == *"does not collect per-process VRAM"* && "$o2" == *"does not collect per-process VRAM"* ]]; then
     ok "contrato: backends sem proc recusam"
   else
     no "contrato: backends sem proc recusam" "mensagem inesperada" "amd: $o1
@@ -339,7 +344,7 @@ ztest_probe() { return 1; }
 BE
   out=$(run_monitor gpu -b ztest -d 1 2>&1)
   rm -f "$ROOT/lib/backends/ztest.sh"
-  contains "contrato: backend incompleto e recusado" "$out" "nao implementa"
+  contains "contrato: backend incompleto e recusado" "$out" "does not implement"
 fi
 
 # ===========================================================================
@@ -351,10 +356,10 @@ export MOCK_PROFILE=nvidia_moderna
 for opt in -i -d -o -g -p -D -f -t -b; do
   if runs "arg $opt sem valor nao trava"; then
     out=$(timeout 5 env PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
-          "$MONITOR" "$opt" 2>&1); rc=$?
+          MONITOR_LANG=en "$MONITOR" "$opt" 2>&1); rc=$?
     if (( rc == 124 )); then
       no "arg $opt sem valor nao trava" "travou (timeout)"
-    elif [[ "$out" == *"exige um valor"* ]]; then
+    elif [[ "$out" == *"requires a value"* ]]; then
       ok "arg $opt sem valor nao trava"
     else
       no "arg $opt sem valor nao trava" "mensagem inesperada" "$out"
@@ -366,25 +371,25 @@ out=$(run_monitor -i 0.5 2>&1)
 contains "interval fracionario sugere ms" "$out" "use -i 500"
 
 out=$(run_monitor -i 50 2>&1)
-contains "interval abaixo do minimo" "$out" "minimo e 100ms"
+contains "interval abaixo do minimo" "$out" "minimum interval is 100ms"
 
 out=$(run_monitor -i abc 2>&1)
-contains "interval nao numerico" "$out" "intervalo invalido"
+contains "interval nao numerico" "$out" "invalid interval"
 
 out=$(run_monitor -p xyz 2>&1)
-contains "modo de procs invalido" "$out" "modo invalido para --procs"
+contains "modo de procs invalido" "$out" "invalid mode for --procs"
 
 out=$(run_monitor disk -D off 2>&1)
-contains "subcomando sem coletor" "$out" "nada a coletar"
+contains "subcomando sem coletor" "$out" "nothing to collect"
 
 out=$(run_monitor -d 3 disk 2>&1)
-contains "subcomando depois das opcoes" "$out" "deve vir antes"
+contains "subcomando depois das opcoes" "$out" "must come before"
 
 out=$(run_monitor gpu -f chrome 2>&1)
-contains "filtro sem coleta de procs" "$out" "--filter so faz sentido"
+contains "filtro sem coleta de procs" "$out" "--filter only makes sense"
 
 out=$(run_monitor gpu -b naoexiste 2>&1)
-contains "backend inexistente" "$out" "backend desconhecido"
+contains "backend inexistente" "$out" "unknown backend"
 
 # ===========================================================================
 group "falhas de driver"
@@ -392,7 +397,7 @@ group "falhas de driver"
 
 if runs "driver mudo: erro claro"; then
   out=$(MOCK_FAIL=driver run_monitor gpu -b nvidia -d 1 2>&1)
-  contains "driver mudo: erro claro" "$out" "nao conseguiu falar com o driver"
+  contains "driver mudo: erro claro" "$out" "could not talk to the driver"
 fi
 
 if runs "indice de GPU invalido"; then
@@ -438,7 +443,7 @@ fi
 if runs "SIGTERM: encerra e preserva dados"; then
   export MOCK_SAMPLES=0
   csv="$TMP/sig.csv"
-  PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
+  PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" MONITOR_LANG=en \
     "$MONITOR" gpu -b nvidia -o "$csv" > "$TMP/sig.out" 2>&1 &
   p=$!
   sleep 2
@@ -468,7 +473,7 @@ if runs "SIGTERM: backend sem produtor encerra"; then
   export MOCK_PROFILE=amd_moderna
   export MONITOR_DRM_ROOT="$TMP/sys_amd_moderna/class/drm"
   csv="$TMP/sigamd.csv"
-  PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
+  PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" MONITOR_LANG=en \
     "$MONITOR" gpu -b amd -o "$csv" > "$TMP/sigamd.out" 2>&1 &
   p=$!
   sleep 2

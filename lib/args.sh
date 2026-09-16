@@ -29,7 +29,7 @@ parse_args() {
 
   # "$1" e o nome da opcao; exigir o valor aqui evita o loop infinito de um
   # "shift 2" que nao desloca nada quando a opcao e o ultimo argumento.
-  local need='[[ $# -ge 2 ]] || die "a opcao $1 exige um valor"'
+  local need='[[ $# -ge 2 ]] || die "$(msg args_need_value "$1")"'
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -45,8 +45,8 @@ parse_args() {
       -q|--quiet)    QUIET=1; shift ;;
       -h|--help)     usage; exit 0 ;;
       -V|--version)  printf 'monitor %s\n' "$VERSION"; exit 0 ;;
-      all|gpu|disk|proc) die "o subcomando deve vir antes das opcoes: ${0##*/} $1 ..." ;;
-      *) die "opcao desconhecida: $1 (use --help)" ;;
+      all|gpu|disk|proc) die "$(msg args_subcmd_order "${0##*/}" "$1")" ;;
+      *) die "$(msg args_unknown_opt "$1")" ;;
     esac
   done
 }
@@ -67,7 +67,7 @@ resolve_targets() {
   # Um subcomando cujo unico coletor foi desligado pela opcao nao coletaria
   # nada: melhor dizer isso do que criar um CSV vazio.
   (( WANT_GPU || WANT_DISK || WANT_PROC )) \
-    || die "nada a coletar: o subcomando \"$CMD\" foi desligado por --procs/--disk off"
+    || die "$(msg args_nothing_to_collect "$CMD")"
 }
 
 validate_args() {
@@ -77,23 +77,23 @@ validate_args() {
   if [[ "$INTERVAL_MS" =~ ^[0-9]*\.[0-9]+$ ]]; then
     local as_ms
     as_ms=$(LC_ALL=C awk -v v="$INTERVAL_MS" 'BEGIN { printf "%d", v * 1000 }')
-    die "--interval e em milissegundos inteiros: use -i $as_ms em vez de -i $INTERVAL_MS"
+    die "$(msg args_interval_ms "$as_ms" "$INTERVAL_MS")"
   fi
-  [[ "$INTERVAL_MS" =~ ^[0-9]+$ ]] || die "intervalo invalido: $INTERVAL_MS (milissegundos inteiros)"
-  [[ "$DURATION" =~ ^[0-9]*\.?[0-9]+$ ]] || die "duracao invalida: $DURATION"
-  [[ -z "$GPU_IDX" || "$GPU_IDX" =~ ^[0-9]+$ ]] || die "indice de GPU invalido: $GPU_IDX"
-  [[ "$TOP_N" =~ ^[0-9]+$ ]] || die "valor invalido para --top: $TOP_N"
+  [[ "$INTERVAL_MS" =~ ^[0-9]+$ ]] || die "$(msg args_interval_invalid "$INTERVAL_MS")"
+  [[ "$DURATION" =~ ^[0-9]*\.?[0-9]+$ ]] || die "$(msg args_duration_invalid "$DURATION")"
+  [[ -z "$GPU_IDX" || "$GPU_IDX" =~ ^[0-9]+$ ]] || die "$(msg args_gpu_idx_invalid "$GPU_IDX")"
+  [[ "$TOP_N" =~ ^[0-9]+$ ]] || die "$(msg args_top_invalid "$TOP_N")"
 
   case "$PROCS_MODE" in
     all|compute|off) ;;
-    *) die "modo invalido para --procs: $PROCS_MODE (use all, compute ou off)" ;;
+    *) die "$(msg args_procs_mode "$PROCS_MODE")" ;;
   esac
 
   if [[ -n "$FILTER_RAW" ]] && (( ! WANT_PROC )); then
-    die "--filter so faz sentido com a coleta de processos ativa"
+    die "$(msg args_filter_needs_procs)"
   fi
 
-  (( INTERVAL_MS >= 100 )) || die "intervalo minimo e 100ms (voce pediu ${INTERVAL_MS}ms)"
+  (( INTERVAL_MS >= 100 )) || die "$(msg args_interval_min "$INTERVAL_MS")"
 
   # Segundos com fracao, para quem cadencia por sleep. LC_ALL=C: num locale
   # pt_BR o %.3f sairia com virgula decimal e o "sleep 0,5" do awk falharia.

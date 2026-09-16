@@ -194,7 +194,7 @@ intel_init() {
     idx=$((idx + 1))
   done
 
-  [[ -n "$INTEL_CARDS" ]] || die "nenhuma GPU Intel encontrada${GPU_IDX:+ no indice $GPU_IDX}"
+  [[ -n "$INTEL_CARDS" ]] || die "$(msg intel_no_gpu "${GPU_IDX:+$(msg nvidia_at_index "$GPU_IDX")}")"
 
   # Este backend nunca rodou em hardware: avisa uma vez, para quem vir uma
   # coluna estranha saber que o problema pode estar aqui, e nao na placa.
@@ -363,7 +363,7 @@ intel_report_gpu() {
 }
 
 intel_start_proc() {
-  die "backend Intel nao coleta VRAM por processo (use --procs off ou o subcomando gpu)"
+  die "$(msg backend_no_procs Intel)"
 
   # TODO: via fdinfo dos descritores de /dev/dri/*, como descrito no cabecalho.
   # Quando existir, intel_supports_procs passa a retornar 0.
