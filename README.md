@@ -15,6 +15,27 @@ temperatura dos discos.
 ./gpu-monitor.sh -q -d 60 &           # coleta em segundo plano, sem saída na tela
 ```
 
+### Subcomandos
+
+Os três coletores são independentes e podem rodar isolados. Sem subcomando, o
+padrão é `all` — o mesmo comportamento de sempre.
+
+| Subcomando | O que coleta | Arquivo gerado |
+|---|---|---|
+| `all` (padrão) | GPU, processos e disco | os três |
+| `gpu` | só as métricas da GPU | `<saída>.csv` |
+| `disk` | só I/O e temperatura dos discos | `<saída>-disk.csv` |
+| `proc` | só a VRAM por processo | `<saída>-procs.csv` |
+
+```bash
+./gpu-monitor.sh disk -D nvme0n1 -d 60   # só o disco
+./gpu-monitor.sh proc -f chrome          # só os processos, filtrando
+./gpu-monitor.sh gpu -i 0.5              # só a GPU, 2 amostras/s
+```
+
+O subcomando vem **antes** das opções. `disk` não precisa de GPU NVIDIA: roda
+numa máquina sem `nvidia-smi`, já que lê apenas `/proc` e `/sys`.
+
 | Opção | Descrição |
 |---|---|
 | `-i, --interval SEG` | Intervalo entre amostras (padrão `1`; aceita fração, mínimo `0.1`) |

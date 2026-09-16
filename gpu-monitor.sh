@@ -1,17 +1,27 @@
 #!/usr/bin/env bash
 #
-# gpu-monitor.sh - amostra o uso da GPU NVIDIA (incluindo VRAM) e grava em CSV,
-# com atribuicao da VRAM por processo num segundo CSV.
+# gpu-monitor.sh - amostra o uso da GPU NVIDIA (incluindo VRAM), a VRAM por
+# processo e o I/O/temperatura dos discos, gravando um CSV para cada um.
 #
-# Uso rapido:   ./gpu-monitor.sh                 # 1 amostra/s ate Ctrl+C
-#               ./gpu-monitor.sh -d 300          # monitora por 5 minutos
-#               ./gpu-monitor.sh -i 0.5 -o x.csv # 2 amostras/s em x.csv
+# Os tres coletores sao independentes e escolhidos por subcomando:
+#
+#   ./gpu-monitor.sh            # all: os tres (padrao)
+#   ./gpu-monitor.sh gpu        # so as metricas da GPU
+#   ./gpu-monitor.sh disk       # so o I/O de disco
+#   ./gpu-monitor.sh proc       # so a VRAM por processo
+#
+# Cada coletor e uma funcao collect_*: lanca suas fontes, escreve seu CSV e
+# imprime seu resumo. main() so decide quais rodar. Essa fronteira e o ponto de
+# extensao para outros fabricantes de GPU (AMD/Intel), que trocam a fonte de
+# dados sem tocar em disco, filtros, CSV ou tratamento de sinais.
 
 set -uo pipefail
 
-VERSION="1.1"
+VERSION="2.0"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
+# --- configuracao (preenchida por parse_args) ------------------------------
+CMD="all"         # all | gpu | disk | proc
 INTERVAL=1        # segundos entre amostras
 DURATION=0        # 0 = roda ate Ctrl+C
 OUTPUT=""         # padrao: logs/gpu-<data>.csv
@@ -25,16 +35,42 @@ FILTER_PIDS=""    # ";1598;2951;" - delimitado, para busca exata por PID
 FILTER_NAMES=""   # ";chrome;xorg;" - minusculas, para busca no nome do executavel
 FILTER_CMDS=""    # subconjunto dos alvos que so fazem sentido na linha completa
 
+# --- estado derivado -------------------------------------------------------
+WANT_GPU=0; WANT_DISK=0; WANT_PROC=0
+INTERVAL_MS=0
+SMI_TARGET=()
+NAMES=""; BUSMAP=""
+PROCS_OUT=""; DISK_OUT=""
+PROCS_SKIP=0; DISK_SKIP=1
+DISK_DEVS=""; DISK_TEMPS=""
+FIFO=""; PFIFO=""
+NVSMI_PID=""; PROCS_PID=""; AWK_PID=""; AWK_PROCS_PID=""; DISK_PID=""
+
+die() { printf 'erro: %s\n' "$1" >&2; exit 1; }
+
 usage() {
   cat <<EOF
-gpu-monitor.sh v$VERSION - monitor de uso de GPU/VRAM NVIDIA com saida CSV
+gpu-monitor.sh v$VERSION - monitor de GPU/VRAM NVIDIA, processos e disco, em CSV
 
-Uso: ${0##*/} [opcoes]
+Uso: ${0##*/} [subcomando] [opcoes]
 
+Subcomandos:
+  all      Coleta GPU, processos e disco (padrao quando nenhum e informado)
+  gpu      So as metricas da GPU
+  disk     So o I/O e a temperatura dos discos
+  proc     So a VRAM atribuida a cada processo
+
+Opcoes comuns:
   -i, --interval SEG   Intervalo entre amostras (padrao: 1; aceita fracao, min 0.1)
   -d, --duration SEG   Duracao total em segundos (padrao: 0 = ate Ctrl+C)
   -o, --output ARQ     Arquivo CSV de saida (padrao: $SCRIPT_DIR/logs/gpu-AAAAMMDD-HHMMSS.csv)
+  -q, --quiet          Nao imprime nada na tela, so grava os CSVs
+  -h, --help           Mostra esta ajuda
+
+Opcoes de GPU (subcomandos all, gpu, proc):
   -g, --gpu IDX        Monitora apenas a GPU de indice IDX (padrao: todas)
+
+Opcoes de processos (subcomandos all, proc):
   -p, --procs MODO     Atribuicao de VRAM por processo (padrao: all)
                          all     - processos de compute (C) e graficos (G)
                          compute - so contextos CUDA/compute (C)
@@ -53,16 +89,16 @@ Uso: ${0##*/} [opcoes]
                          -f name:1234                     processo chamado "1234"
                        A virgula separa alvos: para um comando que tenha virgula
                        nos argumentos, filtre por um trecho sem virgula.
+  -t, --top N          Quantos processos no resumo final (padrao: 5; 0 desliga)
+
+Opcoes de disco (subcomandos all, disk):
   -D, --disk MODO      Monitora I/O e temperatura de disco (padrao: all)
                          all     - todos os discos fisicos
                          off     - nao coleta disco
                          LISTA   - dispositivos separados por virgula
                                    (ex: -D nvme0n1 ou -D sda,sdb)
-  -t, --top N          Quantos processos no resumo final (padrao: 5; 0 desliga)
-  -q, --quiet          Nao imprime nada na tela, so grava os CSVs
-  -h, --help           Mostra esta ajuda
 
-Saidas:
+Saidas (so os arquivos dos coletores ativos sao criados):
   <saida>.csv          uma linha por GPU por amostra (uso, VRAM, temperatura...)
   <saida>-procs.csv    uma linha por processo por amostra (VRAM atribuida ao PID)
   <saida>-disk.csv     uma linha por disco por amostra (leitura/escrita e temperatura)
@@ -96,7 +132,7 @@ Colunas de <saida>-disk.csv:
   read_mb_s          leitura no intervalo, em MB/s
   write_mb_s         escrita no intervalo, em MB/s
   read_iops          operacoes de leitura por segundo
-  write_iops         operacoes de escrita por segundo
+  write_iops         escritas por segundo
   util_pct           % de tempo com pelo menos uma requisicao em voo
   temp_c             temperatura do disco (vazio se nao houver sensor)
 
@@ -111,7 +147,9 @@ a coleta ainda esta rodando.
 EOF
 }
 
-die() { printf 'erro: %s\n' "$1" >&2; exit 1; }
+# ===========================================================================
+# argumentos
+# ===========================================================================
 
 # Acumula alvos de -f/--filter. PIDs viram uma string delimitada por ";" para
 # comparacao exata; nomes vao em minusculas, para casar por trecho no awk.
@@ -164,36 +202,103 @@ add_filter() {
   done
 }
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -i|--interval) INTERVAL="${2:-}"; shift 2 ;;
-    -d|--duration) DURATION="${2:-}"; shift 2 ;;
-    -o|--output)   OUTPUT="${2:-}";   shift 2 ;;
-    -g|--gpu)      GPU_IDX="${2:-}";  shift 2 ;;
-    -p|--procs)    PROCS_MODE="${2:-}"; shift 2 ;;
-    -D|--disk)     DISK_MODE="${2:-}"; shift 2 ;;
-    -f|--filter)   add_filter "${2:-}"; shift 2 ;;
-    -t|--top)      TOP_N="${2:-}";    shift 2 ;;
-    -q|--quiet)    QUIET=1; shift ;;
-    -h|--help)     usage; exit 0 ;;
-    *) die "opcao desconhecida: $1 (use --help)" ;;
+parse_args() {
+  # O subcomando, quando existe, vem primeiro. Sem ele o padrao e "all", para
+  # nao quebrar quem ja chama o script so com opcoes.
+  case "${1-}" in
+    all|gpu|disk|proc) CMD="$1"; shift ;;
   esac
-done
 
-command -v nvidia-smi >/dev/null 2>&1 || die "nvidia-smi nao encontrado - driver NVIDIA instalado?"
-nvidia-smi -L >/dev/null 2>&1 || die "nvidia-smi nao conseguiu falar com o driver"
+  # "$1" e o nome da opcao; exigir o valor aqui evita o loop infinito de um
+  # "shift 2" que nao desloca nada quando a opcao e o ultimo argumento.
+  local need='[[ $# -ge 2 ]] || die "a opcao $1 exige um valor"'
 
-[[ "$INTERVAL" =~ ^[0-9]*\.?[0-9]+$ ]] || die "intervalo invalido: $INTERVAL"
-[[ "$DURATION" =~ ^[0-9]*\.?[0-9]+$ ]] || die "duracao invalida: $DURATION"
-[[ -z "$GPU_IDX" || "$GPU_IDX" =~ ^[0-9]+$ ]] || die "indice de GPU invalido: $GPU_IDX"
-[[ "$TOP_N" =~ ^[0-9]+$ ]] || die "valor invalido para --top: $TOP_N"
-case "$PROCS_MODE" in
-  all|compute|off) ;;
-  *) die "modo invalido para --procs: $PROCS_MODE (use all, compute ou off)" ;;
-esac
-if [[ -n "$FILTER_RAW" && "$PROCS_MODE" == off ]]; then
-  die "--filter e --procs off se excluem: o filtro so age sobre os processos coletados"
-fi
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -i|--interval) eval "$need"; INTERVAL="$2"; shift 2 ;;
+      -d|--duration) eval "$need"; DURATION="$2"; shift 2 ;;
+      -o|--output)   eval "$need"; OUTPUT="$2";   shift 2 ;;
+      -g|--gpu)      eval "$need"; GPU_IDX="$2";  shift 2 ;;
+      -p|--procs)    eval "$need"; PROCS_MODE="$2"; shift 2 ;;
+      -D|--disk)     eval "$need"; DISK_MODE="$2";  shift 2 ;;
+      -f|--filter)   eval "$need"; add_filter "$2"; shift 2 ;;
+      -t|--top)      eval "$need"; TOP_N="$2";    shift 2 ;;
+      -q|--quiet)    QUIET=1; shift ;;
+      -h|--help)     usage; exit 0 ;;
+      all|gpu|disk|proc) die "o subcomando deve vir antes das opcoes: ${0##*/} $1 ..." ;;
+      *) die "opcao desconhecida: $1 (use --help)" ;;
+    esac
+  done
+}
+
+# Traduz subcomando + modos para os tres interruptores que o resto do script usa.
+# -p off e -D off continuam valendo dentro de "all", entao ha duas formas de
+# desligar um coletor: nao pedi-lo no subcomando, ou desliga-lo pela opcao.
+resolve_targets() {
+  case "$CMD" in
+    all)  WANT_GPU=1; WANT_DISK=1; WANT_PROC=1 ;;
+    gpu)  WANT_GPU=1 ;;
+    disk) WANT_DISK=1 ;;
+    proc) WANT_PROC=1 ;;
+  esac
+  [[ "$PROCS_MODE" == off ]] && WANT_PROC=0
+  [[ "$DISK_MODE"  == off ]] && WANT_DISK=0
+
+  # Um subcomando cujo unico coletor foi desligado pela opcao nao coletaria
+  # nada: melhor dizer isso do que criar um CSV vazio.
+  (( WANT_GPU || WANT_DISK || WANT_PROC )) \
+    || die "nada a coletar: o subcomando \"$CMD\" foi desligado por --procs/--disk off"
+}
+
+validate_args() {
+  [[ "$INTERVAL" =~ ^[0-9]*\.?[0-9]+$ ]] || die "intervalo invalido: $INTERVAL"
+  [[ "$DURATION" =~ ^[0-9]*\.?[0-9]+$ ]] || die "duracao invalida: $DURATION"
+  [[ -z "$GPU_IDX" || "$GPU_IDX" =~ ^[0-9]+$ ]] || die "indice de GPU invalido: $GPU_IDX"
+  [[ "$TOP_N" =~ ^[0-9]+$ ]] || die "valor invalido para --top: $TOP_N"
+
+  case "$PROCS_MODE" in
+    all|compute|off) ;;
+    *) die "modo invalido para --procs: $PROCS_MODE (use all, compute ou off)" ;;
+  esac
+
+  if [[ -n "$FILTER_RAW" ]] && (( ! WANT_PROC )); then
+    die "--filter so faz sentido com a coleta de processos ativa"
+  fi
+
+  INTERVAL_MS=$(LC_ALL=C awk -v i="$INTERVAL" 'BEGIN { printf "%d", i * 1000 }')
+  (( INTERVAL_MS >= 100 )) || die "intervalo minimo e 0.1s"
+}
+
+# ===========================================================================
+# descoberta de hardware
+# ===========================================================================
+
+# So os coletores de GPU e de processos falam com o driver: um "disk" puro roda
+# numa maquina sem GPU nenhuma.
+require_nvidia() {
+  command -v nvidia-smi >/dev/null 2>&1 || die "nvidia-smi nao encontrado - driver NVIDIA instalado?"
+  nvidia-smi -L >/dev/null 2>&1 || die "nvidia-smi nao conseguiu falar com o driver"
+
+  SMI_TARGET=()
+  [[ -n "$GPU_IDX" ]] && SMI_TARGET=(-i "$GPU_IDX")
+
+  # Um indice invalido faz o nvidia-smi imprimir "No devices were found" no
+  # proprio stdout, entao checar so se a saida esta vazia nao basta: o codigo de
+  # retorno e o filtro de indice numerico e que separam GPU real de mensagem.
+  local list
+  if ! list=$(nvidia-smi "${SMI_TARGET[@]}" --query-gpu=index,name,gpu_bus_id --format=csv,noheader 2>&1); then
+    die "nvidia-smi nao conseguiu listar a GPU${GPU_IDX:+ de indice $GPU_IDX}: $list"
+  fi
+
+  # Nome e bus id nao mudam durante a coleta: le uma vez e repassa aos awks como
+  # mapas "chave=valor;chave=valor", evitando campos de texto dentro do loop.
+  NAMES=$(printf '%s\n' "$list" \
+          | awk -F', *' '$1 ~ /^[0-9]+$/ { printf "%s%s=%s", sep, $1, $2; sep=";" }')
+  [[ -n "$NAMES" ]] || die "nenhuma GPU encontrada${GPU_IDX:+ no indice $GPU_IDX}"
+  # A secao de processos identifica a placa por bus id, nao por indice.
+  BUSMAP=$(printf '%s\n' "$list" \
+           | awk -F', *' '$1 ~ /^[0-9]+$/ { printf "%s%s=%s", sep, toupper($3), $1; sep=";" }')
+}
 
 # Discos fisicos: /sys/block lista so dispositivos inteiros (particoes ficam
 # dentro deles). dm-*/md-* espelham I/O de discos reais e contariam duas vezes.
@@ -223,39 +328,8 @@ disk_temp_file() {
   done
 }
 
-INTERVAL_MS=$(LC_ALL=C awk -v i="$INTERVAL" 'BEGIN { printf "%d", i * 1000 }')
-(( INTERVAL_MS >= 100 )) || die "intervalo minimo e 0.1s"
-
-# Alvo: uma GPU especifica ou todas.
-SMI_TARGET=()
-[[ -n "$GPU_IDX" ]] && SMI_TARGET=(-i "$GPU_IDX")
-
-# Um indice invalido faz o nvidia-smi imprimir "No devices were found" no
-# proprio stdout, entao checar so se a saida esta vazia nao basta: o codigo de
-# retorno e o filtro de indice numerico e que separam GPU real de mensagem.
-if ! GPU_LIST=$(nvidia-smi "${SMI_TARGET[@]}" --query-gpu=index,name,gpu_bus_id --format=csv,noheader 2>&1); then
-  die "nvidia-smi nao conseguiu listar a GPU${GPU_IDX:+ de indice $GPU_IDX}: $GPU_LIST"
-fi
-
-# Nome e bus id nao mudam durante a coleta: le uma vez e repassa aos awks como
-# mapas "chave=valor;chave=valor", evitando campos de texto dentro do loop.
-NAMES=$(printf '%s\n' "$GPU_LIST" \
-        | awk -F', *' '$1 ~ /^[0-9]+$/ { printf "%s%s=%s", sep, $1, $2; sep=";" }')
-[[ -n "$NAMES" ]] || die "nenhuma GPU encontrada${GPU_IDX:+ no indice $GPU_IDX}"
-# A secao de processos identifica a placa por bus id, nao por indice.
-BUSMAP=$(printf '%s\n' "$GPU_LIST" \
-         | awk -F', *' '$1 ~ /^[0-9]+$/ { printf "%s%s=%s", sep, toupper($3), $1; sep=";" }')
-
-if [[ -z "$OUTPUT" ]]; then
-  mkdir -p "$SCRIPT_DIR/logs" || die "nao consegui criar $SCRIPT_DIR/logs"
-  OUTPUT="$SCRIPT_DIR/logs/gpu-$(date +%Y%m%d-%H%M%S).csv"
-fi
-mkdir -p "$(dirname -- "$OUTPUT")" || die "nao consegui criar $(dirname -- "$OUTPUT")"
-PROCS_OUT="${OUTPUT%.csv}-procs.csv"
-DISK_OUT="${OUTPUT%.csv}-disk.csv"
-
-DISK_DEVS=""; DISK_TEMPS=""
-if [[ "$DISK_MODE" != off ]]; then
+resolve_disks() {
+  local _disks=() _d
   if [[ "$DISK_MODE" == all ]]; then
     mapfile -t _disks < <(list_disks)
     (( ${#_disks[@]} )) || die "nenhum disco fisico encontrado (use --disk off)"
@@ -270,42 +344,57 @@ if [[ "$DISK_MODE" != off ]]; then
     DISK_TEMPS="${DISK_TEMPS:+$DISK_TEMPS;}$_d=$(disk_temp_file "$_d")"
   done
   [[ -n "$DISK_DEVS" ]] || die "nenhum disco selecionado em --disk"
-fi
+}
+
+# ===========================================================================
+# arquivos de saida
+# ===========================================================================
 
 HEADER="timestamp,gpu_index,gpu_name,gpu_util_pct,mem_util_pct,vram_total_mib,vram_used_mib,vram_free_mib,vram_used_pct,temp_c,power_w,sm_clock_mhz,mem_clock_mhz"
 PROCS_HEADER="timestamp,gpu_index,pid,type,process_name,used_vram_mib"
-# So escreve cabecalho em arquivo novo/vazio, para permitir append entre sessoes.
-[[ -s "$OUTPUT" ]] || printf '%s\n' "$HEADER" > "$OUTPUT" || die "nao consegui escrever em $OUTPUT"
-
-PROCS_SKIP=0
-if [[ "$PROCS_MODE" != off ]]; then
-  [[ -s "$PROCS_OUT" ]] || printf '%s\n' "$PROCS_HEADER" > "$PROCS_OUT" \
-    || die "nao consegui escrever em $PROCS_OUT"
-  # Marca onde esta sessao comeca, para o resumo final nao somar coletas antigas.
-  PROCS_SKIP=$(wc -l < "$PROCS_OUT")
-fi
-
 DISK_HEADER="timestamp,device,read_mb_s,write_mb_s,read_iops,write_iops,util_pct,temp_c"
-if [[ "$DISK_MODE" != off ]]; then
-  [[ -s "$DISK_OUT" ]] || printf '%s\n' "$DISK_HEADER" > "$DISK_OUT" \
-    || die "nao consegui escrever em $DISK_OUT"
-  DISK_SKIP=$(wc -l < "$DISK_OUT")
-fi
 
-FIFO=$(mktemp -u -t gpumon.XXXXXXXX)
-PFIFO=$(mktemp -u -t gpumonp.XXXXXXXX)
-mkfifo "$FIFO" || die "nao consegui criar o FIFO"
-[[ "$PROCS_MODE" == off ]] || mkfifo "$PFIFO" || die "nao consegui criar o FIFO de processos"
+# So escreve cabecalho em arquivo novo/vazio, para permitir append entre sessoes.
+init_csv() {
+  local file="$1" header="$2"
+  [[ -s "$file" ]] || printf '%s\n' "$header" > "$file" || die "nao consegui escrever em $file"
+}
 
-NVSMI_PID=""; PROCS_PID=""; AWK_PID=""; AWK_PROCS_PID=""; DISK_PID=""
+setup_outputs() {
+  if [[ -z "$OUTPUT" ]]; then
+    mkdir -p "$SCRIPT_DIR/logs" || die "nao consegui criar $SCRIPT_DIR/logs"
+    OUTPUT="$SCRIPT_DIR/logs/gpu-$(date +%Y%m%d-%H%M%S).csv"
+  fi
+  mkdir -p "$(dirname -- "$OUTPUT")" || die "nao consegui criar $(dirname -- "$OUTPUT")"
+  PROCS_OUT="${OUTPUT%.csv}-procs.csv"
+  DISK_OUT="${OUTPUT%.csv}-disk.csv"
+
+  (( WANT_GPU )) && init_csv "$OUTPUT" "$HEADER"
+  if (( WANT_PROC )); then
+    init_csv "$PROCS_OUT" "$PROCS_HEADER"
+    # Marca onde esta sessao comeca, para o resumo final nao somar coletas antigas.
+    PROCS_SKIP=$(wc -l < "$PROCS_OUT")
+  fi
+  if (( WANT_DISK )); then
+    init_csv "$DISK_OUT" "$DISK_HEADER"
+    DISK_SKIP=$(wc -l < "$DISK_OUT")
+  fi
+  return 0
+}
+
+# ===========================================================================
+# ciclo de vida dos processos filhos
+# ===========================================================================
+
 cleanup() {
+  local p
   for p in "$NVSMI_PID" "$PROCS_PID" "$AWK_PID" "$AWK_PROCS_PID" "$DISK_PID"; do
     [[ -n "$p" ]] && kill "$p" 2>/dev/null
   done
-  rm -f "$FIFO" "$PFIFO"
+  [[ -n "$FIFO" ]] && rm -f "$FIFO"
+  [[ -n "$PFIFO" ]] && rm -f "$PFIFO"
   return 0
 }
-trap cleanup EXIT
 
 # Ctrl+C/TERM encerram apenas as fontes de dados: os FIFOs chegam a EOF, os awks
 # drenam o que ja foi lido, imprimem o resumo e saem por conta propria. Matar os
@@ -318,92 +407,107 @@ stop() {
   [[ -n "$DISK_PID" ]] && kill "$DISK_PID" 2>/dev/null
   return 0
 }
-trap stop INT TERM
 
-FIELDS="timestamp,index,utilization.gpu,utilization.memory,memory.total,memory.used,memory.free,temperature.gpu,power.draw,clocks.sm,clocks.mem"
-
-# -lms deixa o proprio nvidia-smi cadenciar as amostras: uma unica sessao NVML,
-# sem o custo e o drift de reabrir o driver a cada iteracao.
-smi_cmd=(nvidia-smi "${SMI_TARGET[@]}" --query-gpu="$FIELDS" --format=csv,noheader,nounits -lms "$INTERVAL_MS")
-# --query-compute-apps so enxerga contextos CUDA; num desktop tipico a VRAM toda
-# esta em processos graficos (Xorg, navegador, jogo), que ele reporta como vazio.
-# -q -d PIDS traz as duas familias com o tipo explicito, e o modo "compute"
-# filtra por type == C para reproduzir exatamente o recorte do --query-compute-apps.
-procs_cmd=(nvidia-smi "${SMI_TARGET[@]}" -q -d PIDS -lms "$INTERVAL_MS")
-
-if LC_ALL=C awk -v d="$DURATION" 'BEGIN { exit !(d > 0) }'; then
-  timeout "$DURATION" "${smi_cmd[@]}" > "$FIFO" 2>/dev/null &
-  NVSMI_PID=$!
-  if [[ "$PROCS_MODE" != off ]]; then
-    LC_ALL=C timeout "$DURATION" "${procs_cmd[@]}" > "$PFIFO" 2>/dev/null &
-    PROCS_PID=$!
+# Roda um comando pelo tempo de --duration, ou sem limite quando ela e 0.
+#
+# O "exec" e essencial: sem ele, chamar esta funcao com "&" deixa o subshell
+# bash no lugar, e $! passa a apontar para o subshell em vez do produtor real.
+# O stop() mataria a casca, o nvidia-smi ficaria orfao segurando o FIFO aberto,
+# o awk nunca veria EOF e o script travaria em vez de encerrar no Ctrl+C.
+run_source() {
+  if LC_ALL=C awk -v d="$DURATION" 'BEGIN { exit !(d > 0) }'; then
+    exec timeout "$DURATION" "$@"
+  else
+    exec "$@"
   fi
-else
-  "${smi_cmd[@]}" > "$FIFO" 2>/dev/null &
+}
+
+# O wait e interrompido pelo sinal, entao reespera ate o filho realmente sair.
+wait_for() {
+  local pid="$1"
+  [[ -n "$pid" ]] || return 0
+  while kill -0 "$pid" 2>/dev/null; do
+    wait "$pid" 2>/dev/null
+  done
+}
+
+# ===========================================================================
+# coletor: metricas da GPU
+# ===========================================================================
+
+GPU_FIELDS="timestamp,index,utilization.gpu,utilization.memory,memory.total,memory.used,memory.free,temperature.gpu,power.draw,clocks.sm,clocks.mem"
+
+start_gpu() {
+  FIFO=$(mktemp -u -t gpumon.XXXXXXXX)
+  mkfifo "$FIFO" || die "nao consegui criar o FIFO"
+
+  # -lms deixa o proprio nvidia-smi cadenciar as amostras: uma unica sessao NVML,
+  # sem o custo e o drift de reabrir o driver a cada iteracao.
+  run_source nvidia-smi "${SMI_TARGET[@]}" --query-gpu="$GPU_FIELDS" \
+             --format=csv,noheader,nounits -lms "$INTERVAL_MS" > "$FIFO" 2>/dev/null &
   NVSMI_PID=$!
-  if [[ "$PROCS_MODE" != off ]]; then
-    LC_ALL=C "${procs_cmd[@]}" > "$PFIFO" 2>/dev/null &
-    PROCS_PID=$!
-  fi
-fi
 
-if (( ! QUIET )); then
-  printf 'gravando em: %s\n' "$OUTPUT"
-  [[ "$PROCS_MODE" == off ]] || printf 'processos em: %s (%s%s)\n' \
-    "$PROCS_OUT" "$PROCS_MODE" "${FILTER_RAW:+, filtro: $FILTER_RAW}"
-  [[ "$DISK_MODE" == off ]] || printf 'disco em: %s (%s)\n' \
-    "$DISK_OUT" "${DISK_DEVS//;/, }"
-  printf 'intervalo: %ss | duracao: %s | Ctrl+C para parar\n\n' \
-    "$INTERVAL" "$( [[ "$DURATION" == 0 ]] && echo ilimitada || echo "${DURATION}s" )"
-fi
-
-# --- pipeline 1: metricas da GPU -------------------------------------------
-# LC_ALL=C: sem isso um locale pt_BR faz o %.1f do awk emitir virgula decimal,
-# o que parte a coluna vram_used_pct em duas no CSV.
-LC_ALL=C awk -v out="$OUTPUT" -v names="$NAMES" -v quiet="$QUIET" '
-BEGIN {
-  FS = " *, *"
-  n = split(names, pairs, ";")
-  for (k = 1; k <= n; k++) {
-    p = index(pairs[k], "=")
-    gname[substr(pairs[k], 1, p - 1)] = substr(pairs[k], p + 1)
+  # LC_ALL=C: sem isso um locale pt_BR faz o %.1f do awk emitir virgula decimal,
+  # o que parte a coluna vram_used_pct em duas no CSV.
+  LC_ALL=C awk -v out="$OUTPUT" -v names="$NAMES" -v quiet="$QUIET" '
+  BEGIN {
+    FS = " *, *"
+    n = split(names, pairs, ";")
+    for (k = 1; k <= n; k++) {
+      p = index(pairs[k], "=")
+      gname[substr(pairs[k], 1, p - 1)] = substr(pairs[k], p + 1)
+    }
   }
-}
 
-# Campos indisponiveis viram celula vazia em vez de "[N/A]".
-function num(v) { return (v ~ /N\/A/) ? "" : v }
+  # Campos indisponiveis viram celula vazia em vez de "[N/A]".
+  function num(v) { return (v ~ /N\/A/) ? "" : v }
 
-{
-  ts = $1; gsub("/", "-", ts); sub(" ", "T", ts)
-  idx   = $2
-  ugpu  = num($3); umem = num($4)
-  vtot  = num($5); vused = num($6); vfree = num($7)
-  temp  = num($8); pwr  = num($9)
-  csm   = num($10); cmem = num($11)
+  {
+    ts = $1; gsub("/", "-", ts); sub(" ", "T", ts)
+    idx   = $2
+    ugpu  = num($3); umem = num($4)
+    vtot  = num($5); vused = num($6); vfree = num($7)
+    temp  = num($8); pwr  = num($9)
+    csm   = num($10); cmem = num($11)
 
-  vpct = (vtot + 0 > 0) ? vused * 100.0 / vtot : 0
-  name = (idx in gname) ? gname[idx] : "GPU" idx
+    vpct = (vtot + 0 > 0) ? vused * 100.0 / vtot : 0
+    name = (idx in gname) ? gname[idx] : "GPU" idx
 
-  printf("%s,%s,%s,%s,%s,%s,%s,%s,%.1f,%s,%s,%s,%s\n",
-         ts, idx, name, ugpu, umem, vtot, vused, vfree, vpct, temp, pwr, csm, cmem) >> out
-  fflush(out)
-  rows++
+    printf("%s,%s,%s,%s,%s,%s,%s,%s,%.1f,%s,%s,%s,%s\n",
+           ts, idx, name, ugpu, umem, vtot, vused, vfree, vpct, temp, pwr, csm, cmem) >> out
+    fflush(out)
+    rows++
 
-  if (!quiet) {
-    printf("%s  GPU%s  util %3s%%   vram %5s/%s MiB (%4.1f%%)   temp %3s C   %6s W\n",
-           substr(ts, 12, 8), idx, ugpu, vused, vtot, vpct, temp, (pwr == "" ? "-" : pwr))
-    fflush("")
+    if (!quiet) {
+      printf("%s  GPU%s  util %3s%%   vram %5s/%s MiB (%4.1f%%)   temp %3s C   %6s W\n",
+             substr(ts, 12, 8), idx, ugpu, vused, vtot, vpct, temp, (pwr == "" ? "-" : pwr))
+      fflush("")
+    }
   }
+
+  END {
+    if (!quiet) printf("\n%d amostras gravadas.\n", rows) > "/dev/stderr"
+  }
+  ' < "$FIFO" &
+  AWK_PID=$!
 }
 
-END {
-  if (!quiet) printf("\n%d amostras gravadas.\n", rows) > "/dev/stderr"
-}
-' < "$FIFO" &
-AWK_PID=$!
+# ===========================================================================
+# coletor: VRAM por processo
+# ===========================================================================
 
-# --- pipeline 2: VRAM por processo -----------------------------------------
-if [[ "$PROCS_MODE" != off ]]; then
+start_proc() {
+  PFIFO=$(mktemp -u -t gpumonp.XXXXXXXX)
+  mkfifo "$PFIFO" || die "nao consegui criar o FIFO de processos"
+
+  # --query-compute-apps so enxerga contextos CUDA; num desktop tipico a VRAM toda
+  # esta em processos graficos (Xorg, navegador, jogo), que ele reporta como vazio.
+  # -q -d PIDS traz as duas familias com o tipo explicito, e o modo "compute"
+  # filtra por type == C para reproduzir o recorte do --query-compute-apps.
+  LC_ALL=C run_source nvidia-smi "${SMI_TARGET[@]}" -q -d PIDS -lms "$INTERVAL_MS" \
+           > "$PFIFO" 2>/dev/null &
+  PROCS_PID=$!
+
   LC_ALL=C awk -v out="$PROCS_OUT" -v busmap="$BUSMAP" -v mode="$PROCS_MODE" \
                -v fpids="$FILTER_PIDS" -v fnames="$FILTER_NAMES" \
                -v fcmds="$FILTER_CMDS" '
@@ -487,14 +591,17 @@ if [[ "$PROCS_MODE" != off ]]; then
   }
   ' < "$PFIFO" &
   AWK_PROCS_PID=$!
-fi
+}
 
-# --- pipeline 3: I/O e temperatura de disco --------------------------------
+# ===========================================================================
+# coletor: I/O e temperatura de disco
+# ===========================================================================
+
 # Aqui nao ha produtor externo: /proc e /sys sao arquivos, entao o proprio awk
 # cadencia o loop. Os contadores do kernel sao cumulativos desde o boot, e o que
 # interessa e a taxa - por isso a primeira leitura vira base e so a partir da
 # segunda sai linha no CSV.
-if [[ "$DISK_MODE" != off ]]; then
+start_disk() {
   LC_ALL=C awk -v out="$DISK_OUT" -v devs="$DISK_DEVS" -v temps="$DISK_TEMPS" \
                -v iv="$INTERVAL" -v dur="$DURATION" '
   function uptime(   l, a) {
@@ -584,37 +691,32 @@ if [[ "$DISK_MODE" != off ]]; then
   }
   ' &
   DISK_PID=$!
-fi
+}
 
-# Os awks rodam em background e o shell espera: assim um sinal e tratado na hora,
-# em vez de ficar pendurado ate um pipeline em foreground terminar. O wait e
-# interrompido pelo sinal, entao reespera ate os awks realmente sairem.
-for pid_var in AWK_PID AWK_PROCS_PID DISK_PID; do
-  pid="${!pid_var}"
-  [[ -n "$pid" ]] || continue
-  while kill -0 "$pid" 2>/dev/null; do
-    wait "$pid" 2>/dev/null
-  done
-done
-AWK_PID=""; AWK_PROCS_PID=""; DISK_PID=""
-
-wait "$NVSMI_PID" 2>/dev/null; NVSMI_PID=""
-[[ -n "$PROCS_PID" ]] && { wait "$PROCS_PID" 2>/dev/null; PROCS_PID=""; }
+# ===========================================================================
+# resumos
+# ===========================================================================
 
 # Um filtro que nao casou com nada gera um CSV so com cabecalho, o que parece
 # coleta quebrada: avisa e mostra quem estava na GPU, para corrigir o alvo.
-if [[ -n "$FILTER_RAW" && "$PROCS_MODE" != off ]] \
-   && (( $(wc -l < "$PROCS_OUT") <= PROCS_SKIP )); then
+warn_empty_filter() {
+  [[ -n "$FILTER_RAW" ]] || return 0
+  (( $(wc -l < "$PROCS_OUT") <= PROCS_SKIP )) || return 0
+
   printf '\naviso: nenhum processo casou com o filtro "%s".\n' "$FILTER_RAW" >&2
+  local seen
   seen=$(nvidia-smi "${SMI_TARGET[@]}" -q -d PIDS 2>/dev/null \
          | awk '/^ +Name +:/ { n = $0; sub(/^[^:]*:[ ]*/, "", n); split(n, w, " ")
                                sub(/.*\//, "", w[1]); print w[1] }' \
          | sort -u | paste -sd" ")
   [[ -n "$seen" ]] && printf 'processos na GPU agora: %s\n' "$seen" >&2
-fi
+  return 0
+}
 
-# --- resumo: quem consumiu a VRAM ------------------------------------------
-if (( ! QUIET )) && [[ "$PROCS_MODE" != off ]] && (( TOP_N > 0 )) && [[ -s "$PROCS_OUT" ]]; then
+summarize_proc() {
+  (( TOP_N > 0 )) || return 0
+  [[ -s "$PROCS_OUT" ]] || return 0
+
   LC_ALL=C awk -F, -v skip="$PROCS_SKIP" -v top="$TOP_N" '
   NR <= skip { next }
   {
@@ -640,11 +742,12 @@ if (( ! QUIET )) && [[ "$PROCS_MODE" != off ]] && (( TOP_N > 0 )) && [[ -s "$PRO
     }
   }
   ' "$PROCS_OUT"
-fi
+}
 
-# --- resumo: disco ---------------------------------------------------------
-if (( ! QUIET )) && [[ "$DISK_MODE" != off ]] && [[ -s "$DISK_OUT" ]]; then
-  LC_ALL=C awk -F, -v skip="${DISK_SKIP:-1}" '
+summarize_disk() {
+  [[ -s "$DISK_OUT" ]] || return 0
+
+  LC_ALL=C awk -F, -v skip="$DISK_SKIP" '
   NR <= skip { next }
   {
     d = $2; n[d]++
@@ -664,10 +767,66 @@ if (( ! QUIET )) && [[ "$DISK_MODE" != off ]] && [[ -s "$DISK_OUT" ]]; then
     }
   }
   ' "$DISK_OUT"
-fi
-
-(( QUIET )) || {
-  printf '\nCSV: %s\n' "$OUTPUT"
-  [[ "$PROCS_MODE" == off ]] || printf 'CSV processos: %s\n' "$PROCS_OUT"
-  [[ "$DISK_MODE" == off ]] || printf 'CSV disco: %s\n' "$DISK_OUT"
 }
+
+print_banner() {
+  (( QUIET )) && return 0
+  (( WANT_GPU ))  && printf 'gravando em: %s\n' "$OUTPUT"
+  (( WANT_PROC )) && printf 'processos em: %s (%s%s)\n' \
+    "$PROCS_OUT" "$PROCS_MODE" "${FILTER_RAW:+, filtro: $FILTER_RAW}"
+  (( WANT_DISK )) && printf 'disco em: %s (%s)\n' "$DISK_OUT" "${DISK_DEVS//;/, }"
+  printf 'intervalo: %ss | duracao: %s | Ctrl+C para parar\n\n' \
+    "$INTERVAL" "$( [[ "$DURATION" == 0 ]] && echo ilimitada || echo "${DURATION}s" )"
+  return 0
+}
+
+print_footer() {
+  (( QUIET )) && return 0
+  printf '\n'
+  (( WANT_GPU ))  && printf 'CSV: %s\n' "$OUTPUT"
+  (( WANT_PROC )) && printf 'CSV processos: %s\n' "$PROCS_OUT"
+  (( WANT_DISK )) && printf 'CSV disco: %s\n' "$DISK_OUT"
+  return 0
+}
+
+# ===========================================================================
+# main
+# ===========================================================================
+
+main() {
+  parse_args "$@"
+  resolve_targets
+  validate_args
+
+  (( WANT_GPU || WANT_PROC )) && require_nvidia
+  (( WANT_DISK )) && resolve_disks
+
+  setup_outputs
+
+  trap cleanup EXIT
+  trap stop INT TERM
+
+  print_banner
+
+  (( WANT_GPU ))  && start_gpu
+  (( WANT_PROC )) && start_proc
+  (( WANT_DISK )) && start_disk
+
+  # Os awks rodam em background e o shell espera: assim um sinal e tratado na
+  # hora, em vez de ficar pendurado ate um pipeline em foreground terminar.
+  wait_for "$AWK_PID";       AWK_PID=""
+  wait_for "$AWK_PROCS_PID"; AWK_PROCS_PID=""
+  wait_for "$DISK_PID";      DISK_PID=""
+
+  [[ -n "$NVSMI_PID" ]] && { wait "$NVSMI_PID" 2>/dev/null; NVSMI_PID=""; }
+  [[ -n "$PROCS_PID" ]] && { wait "$PROCS_PID" 2>/dev/null; PROCS_PID=""; }
+
+  (( WANT_PROC )) && warn_empty_filter
+  (( ! QUIET && WANT_PROC )) && summarize_proc
+  (( ! QUIET && WANT_DISK )) && summarize_disk
+
+  print_footer
+  return 0
+}
+
+main "$@"
