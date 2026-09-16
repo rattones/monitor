@@ -81,6 +81,19 @@ BACKEND_REQUIRED_FUNCS=(
   list_procs
 )
 
+# Funcoes que um backend pode definir, mas nao precisa. Chamadas por backend_try,
+# que simplesmente nao faz nada quando o backend nao as tem.
+#
+#   <be>_report_gpu
+#     Chamada depois que a coleta termina, antes do rodape. Serve a um backend
+#     sem produtor externo, cujo awk e morto direto no Ctrl+C e por isso nunca
+#     chega a um bloco END: e aqui que ele reporta o total de amostras.
+#     Um backend com produtor (nvidia-smi) nao precisa - o awk dele drena o
+#     FIFO ate o EOF e imprime o total sozinho.
+BACKEND_OPTIONAL_FUNCS=(
+  report_gpu
+)
+
 # Ordem da autodeteccao. O primeiro cujo _probe aceitar e o escolhido, entao a
 # ordem importa numa maquina hibrida: a NVIDIA vem primeiro por ser a unica que
 # hoje atribui VRAM por processo.
@@ -97,6 +110,14 @@ PROC_SRC_PID=""; PROC_AWK_PID=""
 # Chama uma funcao do backend em uso: backend_call start_gpu -> nvidia_start_gpu
 backend_call() {
   local fn="$1"; shift
+  "${BACKEND}_${fn}" "$@"
+}
+
+# Chama uma funcao opcional do backend, se ele a definir. Usado pelas funcoes
+# que nem todo backend precisa ter - ver BACKEND_OPTIONAL_FUNCS.
+backend_try() {
+  local fn="$1"; shift
+  declare -F "${BACKEND}_${fn}" >/dev/null || return 0
   "${BACKEND}_${fn}" "$@"
 }
 

@@ -189,6 +189,7 @@ main() {
   [[ -n "$GPU_SRC_PID"  ]] && { wait "$GPU_SRC_PID"  2>/dev/null; GPU_SRC_PID=""; }
   [[ -n "$PROC_SRC_PID" ]] && { wait "$PROC_SRC_PID" 2>/dev/null; PROC_SRC_PID=""; }
 
+  (( WANT_GPU )) && backend_try report_gpu
   (( WANT_PROC )) && warn_empty_filter
   (( ! QUIET && WANT_PROC )) && summarize_proc
   (( ! QUIET && WANT_DISK )) && summarize_disk

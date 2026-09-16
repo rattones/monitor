@@ -236,7 +236,7 @@ lib/
 ├── report.sh           banner, resumos, rodapé
 └── backends/
     ├── nvidia.sh       via nvidia-smi — implementado
-    ├── amd.sh          via sysfs amdgpu — esqueleto
+    ├── amd.sh          via sysfs amdgpu — implementado (sem VRAM/processo)
     └── intel.sh        via sysfs i915/xe — esqueleto
 ```
 
@@ -253,10 +253,27 @@ O backend é escolhido por autodetecção, ou forçado com `-b/--backend`:
 ./monitor.sh --help          # lista os disponíveis
 ```
 
-**Estado atual:** só o backend NVIDIA coleta. AMD e Intel têm o `probe`
-funcionando — a autodetecção já os enxerga — mas as funções de coleta ainda
-falham com uma mensagem explícita. Os arquivos documentam onde cada métrica
-mora em sysfs e como a coleta deve ser feita.
+**Estado atual:**
+
+| Backend | Métricas da GPU | VRAM por processo |
+|---|---|---|
+| `nvidia` | sim | sim |
+| `amd` | sim | não |
+| `intel` | esqueleto | não |
+
+O backend AMD lê sysfs do driver `amdgpu`, sem root e sem ferramenta externa.
+Foi verificado numa Radeon Vega (Cezanne, APU): `mem_util_pct` fica vazio
+porque esta placa não expõe `mem_busy_percent` — placas dedicadas costumam
+expor. As demais colunas são preenchidas.
+
+Nem AMD nem Intel têm equivalente ao `nvidia-smi -q -d PIDS`, então o
+subcomando `proc` é recusado neles. Para coletar GPU e disco com AMD, use
+`--procs off`:
+
+```bash
+./monitor.sh -b amd -p off      # GPU + disco
+./monitor.sh gpu -b amd         # só a GPU
+```
 
 Um backend que não sabe atribuir VRAM por processo declara isso em
 `supports_procs`, e o subcomando `proc` é recusado com explicação em vez de

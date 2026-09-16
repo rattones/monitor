@@ -23,10 +23,23 @@ run_source() {
 # drenam o que ja foi lido, imprimem o resumo e saem por conta propria. Matar os
 # awks aqui truncaria a ultima amostra e perderia a contagem final.
 stop() {
-  [[ -n "$GPU_SRC_PID"  ]] && kill "$GPU_SRC_PID"  2>/dev/null
-  [[ -n "$PROC_SRC_PID" ]] && kill "$PROC_SRC_PID" 2>/dev/null
-  # O coletor de disco nao tem produtor para fechar, entao e encerrado direto:
-  # cada linha ja foi gravada com flush, nada fica pela metade.
+  # Um backend com produtor externo (nvidia-smi) fecha pela fonte: o FIFO chega
+  # a EOF e o awk sai sozinho depois de drenar. Um backend que le sysfs direto
+  # nao tem produtor - o proprio awk e a fonte, e fica sem ninguem para
+  # encerra-lo se so olharmos o *_SRC_PID. Nesse caso mata-se o awk, como ja e
+  # feito com o disco: cada linha ja foi gravada com flush, nada fica pela metade.
+  if [[ -n "$GPU_SRC_PID" ]]; then
+    kill "$GPU_SRC_PID" 2>/dev/null
+  else
+    [[ -n "$GPU_AWK_PID" ]] && kill "$GPU_AWK_PID" 2>/dev/null
+  fi
+
+  if [[ -n "$PROC_SRC_PID" ]]; then
+    kill "$PROC_SRC_PID" 2>/dev/null
+  else
+    [[ -n "$PROC_AWK_PID" ]] && kill "$PROC_AWK_PID" 2>/dev/null
+  fi
+
   [[ -n "$DISK_PID" ]] && kill "$DISK_PID" 2>/dev/null
   return 0
 }
