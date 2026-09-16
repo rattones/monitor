@@ -289,7 +289,7 @@ de sysfs simuladas —, então dá o mesmo resultado numa máquina sem GPU nenhu
 Cada fabricante é testado em duas gerações, moderna e antiga, porque é na
 antiga, onde faltam métricas, que o contrato da célula vazia é posto à prova.
 
-Detalhes em [tests/README.md](tests/README.md).
+Detalhes em [tests/README.pt-BR.md](tests/README.pt-BR.md).
 
 ## Contribuindo
 

@@ -1,90 +1,97 @@
-# Testes
+# Tests
+
+[English](README.md) · [Português](README.pt-BR.md)
 
 ```bash
-./tests/run-tests.sh              # tudo
-./tests/run-tests.sh -v           # mostra a saída de cada falha
-./tests/run-tests.sh amd          # só os testes cujo nome contém "amd"
+./tests/run-tests.sh              # 106 tests, about a minute
+./tests/run-tests.sh -v           # show the output of each failure
+./tests/run-tests.sh amd          # only tests whose name contains "amd"
 ```
 
-A suíte roda o `monitor.sh` de verdade contra dados falsos: um `nvidia-smi`
-mockado no `PATH` e árvores `/sys/class/drm` simuladas para AMD e Intel. Nada
-toca o hardware da máquina, então **o resultado é o mesmo numa máquina sem GPU
-nenhuma** — que é justamente como o backend Intel é testado, já que não há GPU
-Intel aqui.
+The suite runs the real `monitor.sh` against fake data: a mocked `nvidia-smi` on
+the `PATH` and simulated `/sys/class/drm` trees for AMD and Intel. Nothing
+touches the machine's hardware, so **the result is the same on a machine with no
+GPU at all** — which is exactly how the Intel backend is tested, since there is
+no Intel GPU here.
 
-## Dois níveis por fabricante
+## Two levels per vendor
 
-Cada backend é exercitado com duas gerações. O nível antigo é o que importa:
-é onde faltam métricas, e onde o contrato *"métrica ausente vira célula vazia,
-nunca zero"* ou funciona ou quebra.
+Each backend is exercised with two generations. The old level is the one that
+matters: it is where metrics are missing, and where the contract *"a missing
+metric becomes an empty cell, never zero"* either holds or breaks.
 
-| Fabricante | Moderna | Antiga | O que a antiga exercita |
+| Vendor | Modern | Old | What the old one exercises |
 |---|---|---|---|
-| NVIDIA | RTX 4070 | **GTX 1050** | `power.draw` = `[N/A]` → coluna vazia |
-| AMD | RX 7800 XT | RX 560 (Polaris) | sem `mem_busy_percent`; usa `power1_average` |
-| Intel | Arc A770 | HD 630 (integrada) | sem `lmem_*` → colunas `vram_*` vazias |
+| NVIDIA | RTX 4070 | **GTX 1050** | `power.draw` = `[N/A]` → empty column |
+| AMD | RX 7800 XT | RX 560 (Polaris) | no `mem_busy_percent`; uses `power1_average` |
+| Intel | Arc A770 | HD 630 (integrated) | no `lmem_*` → `vram_*` columns empty |
 
-O que cada geração deixa de reportar não é invenção: é o que aquele hardware
-de fato não expõe. Os valores ficam em [`mocks/gpu-profiles.sh`](mocks/gpu-profiles.sh).
+What each generation fails to report is not invented: it is what that hardware
+actually does not expose. The values live in
+[`mocks/gpu-profiles.sh`](mocks/gpu-profiles.sh).
 
-## O que é coberto
+## What is covered
 
-- **Colunas e unidades** — cada backend, nos dois níveis: bytes→MiB,
-  milésimos→°C, microwatts→W, Hz→MHz. O Intel confere o caso oposto:
-  `gt_*_freq_mhz` já vem em MHz e **não** pode ser dividido.
-- **Células vazias** — `[N/A]`, arquivo de sysfs ausente, GPU integrada sem VRAM.
-- **Contrato entre backends** — mesmo cabeçalho, 13 colunas, timestamp com
-  milissegundos nos três; nenhum `N/A` escrito em CSV.
-- **Processos** — tipos `C`/`G`/`C+G`, `--procs compute` mantendo `C+G`,
-  filtros por nome e por PID, aviso quando nada casa.
-- **Argumentos** — as 9 opções com valor obrigatório (o travamento do
-  `shift 2`), intervalo em ms, subcomandos, mensagens de erro.
-- **Sinais** — `SIGTERM` encerrando com dados preservados, sem FIFOs órfãos,
-  e o caso do backend sem produtor externo (AMD), onde o awk *é* a fonte.
-- **Falhas de driver** — driver mudo, índice de GPU inexistente.
+- **Columns and units** — each backend, at both levels: bytes→MiB,
+  thousandths→°C, microwatts→W, Hz→MHz. Intel checks the opposite case:
+  `gt_*_freq_mhz` already comes in MHz and must **not** be divided.
+- **Empty cells** — `[N/A]`, a missing sysfs file, an integrated GPU with no VRAM.
+- **Cross-backend contract** — same header, 13 columns, millisecond timestamps
+  in all three; no `N/A` ever written to a CSV.
+- **Processes** — `C`/`G`/`C+G` types, `--procs compute` keeping `C+G`, filters
+  by name and by PID, the warning when nothing matches.
+- **Arguments** — the 9 options with a required value (the `shift 2` hang),
+  interval in ms, subcommands, error messages.
+- **Signals** — `SIGTERM` finishing with data preserved, no orphaned FIFOs, and
+  the case of a backend with no external producer (AMD), where the awk *is* the
+  source.
+- **Driver failures** — mute driver, nonexistent GPU index.
+- **i18n** — language detection, POSIX precedence, fallback to English,
+  `MONITOR_LANG` overriding the locale, and that the **CSV does not change with
+  the language**.
 
-## Os mocks
+## The mocks
 
-| Arquivo | Papel |
+| File | Role |
 |---|---|
-| `mocks/gpu-profiles.sh` | os dados de cada perfil de hardware |
-| `mocks/bin/nvidia-smi` | reproduz `-L`, `--query-gpu` e `-q -d PIDS` no formato exato do binário real |
-| `mocks/bin/lspci` | a linha de classe PCI usada para o nome da placa |
-| `mocks/make-sysfs.sh` | monta a árvore `/sys/class/drm` falsa de um perfil |
+| `mocks/gpu-profiles.sh` | the data of each hardware profile |
+| `mocks/bin/nvidia-smi` | reproduces `-L`, `--query-gpu` and `-q -d PIDS` in the real binary's exact format |
+| `mocks/bin/lspci` | the PCI class line used for the card name |
+| `mocks/make-sysfs.sh` | builds a profile's fake `/sys/class/drm` tree |
 
-Variáveis que controlam os mocks:
+Details in [mocks/README.md](mocks/README.md). The variables that control them:
 
-| Variável | Efeito |
+| Variable | Effect |
 |---|---|
-| `MOCK_PROFILE` | qual perfil de hardware usar |
-| `MOCK_SAMPLES` | quantas amostras o fluxo emite (`0` = até ser morto) |
-| `MOCK_FAIL` | `driver` (driver mudo) ou `nodevice` |
-| `MONITOR_DRM_ROOT` | raiz do sysfs que os backends AMD/Intel leem |
+| `MOCK_PROFILE` | which hardware profile to use |
+| `MOCK_SAMPLES` | how many samples the stream emits (`0` = until killed) |
+| `MOCK_FAIL` | `driver` (mute driver) or `nodevice` |
+| `MONITOR_DRM_ROOT` | sysfs root the AMD/Intel backends read |
 
-`MONITOR_DRM_ROOT` é o ponto de injeção que torna os backends de sysfs
-testáveis. Em uso normal fica em `/sys/class/drm`.
+`MONITOR_DRM_ROOT` is the injection point that makes the sysfs backends
+testable. In normal use it is `/sys/class/drm`.
 
-## Verificando que os testes detectam regressões
+## Checking that the tests detect regressions
 
-Uma suíte que só passa não prova nada. Estes três bugs foram injetados de
-propósito e cada um foi detectado:
+A suite that only passes proves nothing. These three bugs were injected on
+purpose, and each one was caught:
 
-| Bug injetado | Teste que pegou |
+| Injected bug | Test that caught it |
 |---|---|
-| métrica ausente virando `0` em vez de vazio | `amd antiga: mem_util VAZIO` |
-| dividir o clock do Intel, que já vem em MHz | `intel moderna: clock ja em MHz` |
-| remover o guard do `shift 2` | `arg -i sem valor nao trava` |
+| a missing metric becoming `0` instead of empty | `amd antiga: mem_util VAZIO` |
+| dividing the Intel clock, which is already in MHz | `intel moderna: clock ja em MHz` |
+| removing the `shift 2` guard | `arg -i sem valor nao trava` |
 
-Vale repetir esse exercício ao adicionar um teste novo: se ele passa tanto com
-o código certo quanto com o errado, ele não está medindo nada.
+Worth repeating that exercise whenever you add a test: if it passes with both
+the correct and the broken code, it is measuring nothing.
 
-## Limitações
+## Limitations
 
-- O mock do `nvidia-smi` emite várias amostras dentro do mesmo segundo, e o
-  timestamp do CSV de processos tem resolução de 1s. Testes sobre processos
-  contam PIDs distintos, não linhas por timestamp.
-- O teste de disco lê o `/proc/diskstats` **real** (é só leitura, sem efeito
-  colateral). Numa máquina sem ele, esse grupo é pulado.
-- O backend Intel é validado contra sysfs simulado, o que exercita a lógica de
-  leitura e conversão — **não** que os caminhos existam num i915 de verdade.
-  Isso só um teste em hardware resolve.
+- The `nvidia-smi` mock emits several samples within the same second, and the
+  process CSV's timestamp has 1s resolution. Process tests count distinct PIDs,
+  not lines per timestamp.
+- The disk test reads the **real** `/proc/diskstats` (read-only, no side
+  effects). On a machine without it, that group is skipped.
+- The Intel backend is validated against a simulated sysfs, which exercises the
+  reading and conversion logic — **not** that those paths exist on a real i915.
+  Only a test on hardware settles that.

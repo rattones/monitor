@@ -155,7 +155,7 @@ Cada fabricante é exercitado em duas gerações, moderna e antiga. A antiga é 
 que mais importa: é onde faltam métricas, e onde o contrato *"métrica que o
 hardware não reporta vira célula vazia, nunca zero"* ou funciona ou quebra.
 
-Detalhes em [tests/README.md](tests/README.md).
+Detalhes em [tests/README.pt-BR.md](tests/README.pt-BR.md).
 
 ### Conferindo que um teste realmente detecta algo
 
