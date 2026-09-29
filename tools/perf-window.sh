@@ -48,7 +48,10 @@ to_mono() {
   rt=$(date -d "$s" +%s.%N) || die "horario invalido: $1"
   awk -v rt="$rt" -v rt0="$rt0" -v m0="$mono0" 'BEGIN { printf "%.6f", rt - rt0 + m0 }'
 }
-m_from=$(to_mono "$from"); m_to=$(to_mono "$to")
+# O die de dentro do $(...) so encerra o subshell: sem o "|| exit", um horario
+# invalido seguiria adiante como janela vazia.
+m_from=$(to_mono "$from") || exit 1
+m_to=$(to_mono "$to") || exit 1
 
 perf script -i "$data" --time "$m_from,$m_to" -F comm,tid,time,ip,sym,dso 2>/dev/null \
 | awk -v want="$thread" '

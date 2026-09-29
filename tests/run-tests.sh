@@ -353,7 +353,7 @@ group "argumentos e validacao"
 
 export MOCK_PROFILE=nvidia_moderna
 
-for opt in -i -d -o -g -p -D -f -t -b; do
+for opt in -i -d -o -g -p -D -S -f -t -b; do
   if runs "arg $opt sem valor nao trava"; then
     out=$(timeout 5 env PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
           MONITOR_LANG=en "$MONITOR" "$opt" 2>&1); rc=$?
@@ -390,6 +390,53 @@ contains "filtro sem coleta de procs" "$out" "--filter only makes sense"
 
 out=$(run_monitor gpu -b naoexiste 2>&1)
 contains "backend inexistente" "$out" "unknown backend"
+
+out=$(run_monitor -d abc 2>&1)
+contains "duracao invalida" "$out" "invalid duration: abc"
+
+out=$(run_monitor -g x 2>&1)
+contains "indice de GPU nao numerico" "$out" "invalid GPU index: x"
+
+out=$(run_monitor -t -1 2>&1)
+contains "top invalido" "$out" "invalid value for --top"
+
+out=$(run_monitor --naoexiste 2>&1)
+contains "opcao desconhecida" "$out" "unknown option: --naoexiste"
+
+if runs "--version imprime a versao"; then
+  out=$(run_monitor --version 2>&1)
+  want="monitor $(sed -n 's/^VERSION="\(.*\)"$/\1/p' "$MONITOR")"
+  eq "--version imprime a versao" "$out" "$want"
+fi
+
+# O prefixo pid: exige digitos; sem ele, um numero ja e PID e o resto e nome.
+out=$(run_monitor proc -f pid:abc 2>&1)
+contains "filtro: pid: nao numerico" "$out" "invalid PID in --filter: abc"
+
+out=$(run_monitor proc -f pid: 2>&1)
+contains "filtro: pid: vazio" "$out" "empty target in --filter"
+
+out=$(run_monitor proc -f '' 2>&1)
+contains "filtro: alvo vazio" "$out" "requires at least one PID or name"
+
+# name: forca nome mesmo para digitos, e "..." (colado da tabela do nvidia-smi)
+# casa pelo trecho que sobrou.
+if runs "filtro: name: com digitos e nome"; then
+  out=$(run_monitor proc -b nvidia -f name:60282 -d 1 -o "$TMP/nv_fname.csv" 2>&1)
+  contains "filtro: name: com digitos e nome" "$out" "no process matched"
+fi
+
+if runs "filtro: reticencias casam pelo trecho"; then
+  run_monitor proc -b nvidia -f '...hrome' -d 1 -q -o "$TMP/nv_fdots.csv" >/dev/null 2>&1
+  eq "filtro: reticencias casam pelo trecho" \
+     "$(awk -F, 'NR>1 {print $5}' "$TMP/nv_fdots-procs.csv" | sort -u | paste -sd,)" "chrome"
+fi
+
+out=$(run_monitor disk -D naoexiste 2>&1)
+contains "disco inexistente" "$out" "unknown disk: naoexiste"
+
+out=$(run_monitor disk -D ' , ' 2>&1)
+contains "disco: lista so com virgulas" "$out" "no disk selected"
 
 # ===========================================================================
 group "falhas de driver"
@@ -440,32 +487,33 @@ if runs "cadencia: -i 250 em 1s"; then
   else no "cadencia: -i 250 em 1s" "esperava 3-6 amostras, veio $n"; fi
 fi
 
-if runs "SIGTERM: encerra e preserva dados"; then
-  export MOCK_SAMPLES=0
-  csv="$TMP/sig.csv"
-  PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" MONITOR_LANG=en \
-    "$MONITOR" gpu -b nvidia -o "$csv" > "$TMP/sig.out" 2>&1 &
-  p=$!
+# Manda TERM ao monitor em background e espera ele sair. Devolve 0 se saiu em
+# 5 s; senao mata com -9 e devolve 1. O $! do chamador vai em $1.
+term_and_wait() {
+  local p="$1" _
   sleep 2
   kill -TERM "$p" 2>/dev/null
-  died=0
   for _ in $(seq 1 20); do
-    kill -0 "$p" 2>/dev/null || { died=1; break; }
+    kill -0 "$p" 2>/dev/null || return 0
     sleep 0.25
   done
-  if (( ! died )); then
-    kill -9 "$p" 2>/dev/null
-    no "SIGTERM: encerra e preserva dados" "nao encerrou em 5s"
-  elif (( $(rows "$csv") < 1 )); then
-    no "SIGTERM: encerra e preserva dados" "nenhuma linha gravada"
-  else
-    ok "SIGTERM: encerra e preserva dados"
-  fi
-fi
+  kill -9 "$p" 2>/dev/null
+  return 1
+}
 
-if runs "SIGTERM: sem FIFOs orfaos"; then
-  n=$(find /tmp -maxdepth 1 -name 'gpumon*' -newer "$TMP" 2>/dev/null | wc -l)
-  eq "SIGTERM: sem FIFOs orfaos" "$n" "0"
+# Os FIFOs vao para um TMPDIR so desta execucao: procurar em /tmp contaria os de
+# um monitor de verdade rodando na mesma maquina, e o teste falharia sem bug.
+if runs "SIGTERM: encerra e preserva dados" || runs "SIGTERM: sem FIFOs orfaos"; then
+  export MOCK_SAMPLES=0
+  csv="$TMP/sig.csv"; fifodir="$TMP/fifos"
+  mkdir -p "$fifodir"
+  TMPDIR="$fifodir" PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" MONITOR_LANG=en \
+    "$MONITOR" gpu -b nvidia -o "$csv" > "$TMP/sig.out" 2>&1 &
+  if ! term_and_wait $!; then r="nao encerrou em 5s"
+  elif (( $(rows "$csv") < 1 )); then r="nenhuma linha gravada"
+  else r="ok"; fi
+  eq "SIGTERM: encerra e preserva dados" "$r" "ok" "$(cat "$TMP/sig.out")"
+  eq "SIGTERM: sem FIFOs orfaos" "$(find "$fifodir" -name 'gpumon*' | wc -l)" "0"
 fi
 
 # AMD nao tem produtor externo: o awk e a fonte, e o stop() precisa mata-lo.
@@ -475,16 +523,8 @@ if runs "SIGTERM: backend sem produtor encerra"; then
   csv="$TMP/sigamd.csv"
   PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" MONITOR_LANG=en \
     "$MONITOR" gpu -b amd -o "$csv" > "$TMP/sigamd.out" 2>&1 &
-  p=$!
-  sleep 2
-  kill -TERM "$p" 2>/dev/null
-  died=0
-  for _ in $(seq 1 20); do
-    kill -0 "$p" 2>/dev/null || { died=1; break; }
-    sleep 0.25
-  done
-  if (( died )); then ok "SIGTERM: backend sem produtor encerra"
-  else kill -9 "$p" 2>/dev/null; no "SIGTERM: backend sem produtor encerra" "travou"; fi
+  if term_and_wait $!; then ok "SIGTERM: backend sem produtor encerra"
+  else no "SIGTERM: backend sem produtor encerra" "travou"; fi
   unset MONITOR_DRM_ROOT
 fi
 
@@ -658,9 +698,64 @@ eq "threads: wchan"            "$(field "$tcsv" 7)" "nv_wait_for_gpu" "$out"
 eq "threads: ociosa fica fora" "$(grep -c ',idle,' "$tcsv")" "0" "$out"
 eq "threads: ultimo nucleo"    "$(field "$tcsv" 10)" "3" "$out"
 eq "threads: afinidade sem virgula" "$(field "$tcsv" 11)" "0 2-3" "$out"
+# Sem tick nenhum, a divisao usuario/kernel e 0/0 - e nao vazia: a thread em D
+# entrou, entao o cpu_pct dela foi medido (0), e as partes dele tambem.
+eq "threads: user_pct parado = 0" "$(field "$tcsv" 8)" "0.0" "$out"
+eq "threads: sys_pct parado = 0"  "$(field "$tcsv" 9)" "0.0" "$out"
 
-out=$(run_sys -P -d 1 2>&1)
-contains "perf: exige PID" "$out" "--perf needs a target PID"
+# Uma thread que gasta CPU de verdade no relogio do coletor: o stat dela e
+# reescrito a partir do /proc/uptime real, 60% de um nucleo no codigo do
+# programa e 20% no kernel. O mv deixa a troca atomica - o coletor nunca le um
+# stat pela metade.
+mkdir -p "$fakeproc/5151/task/5151"
+pstat 5151 Worker R 0 0 0 > "$fakeproc/5151/stat"
+cp "$fakeproc/5151/stat" "$fakeproc/5151/task/5151/stat"
+busy_writer() {
+  local tck up0 up u s
+  tck=$(getconf CLK_TCK 2>/dev/null || echo 100)
+  up0=$(cut -d' ' -f1 /proc/uptime)
+  while :; do
+    up=$(cut -d' ' -f1 /proc/uptime)
+    read -r u s < <(LC_ALL=C awk -v a="$up0" -v b="$up" -v t="$tck" \
+                    'BEGIN { d = (b - a) * t; printf "%d %d\n", d * 0.6, d * 0.2 }')
+    pstat 5151 Worker R 0 "$u" "$s" > "$fakeproc/5151/stat.new"
+    cp "$fakeproc/5151/stat.new" "$fakeproc/5151/task/5151/stat.new"
+    mv "$fakeproc/5151/stat.new" "$fakeproc/5151/stat"
+    mv "$fakeproc/5151/task/5151/stat.new" "$fakeproc/5151/task/5151/stat"
+    sleep 0.05
+  done
+}
+
+if runs "threads: user + sys = cpu" || runs "threads: user acima de sys" \
+   || runs "threads: cpu da thread medida" || runs "threads: sem status = afinidade vazia"; then
+  busy_writer & bw=$!
+  out=$(run_sys -f pid:5151 -d 2.2 -q -o "$TMP/su.csv" 2>&1)
+  kill "$bw" 2>/dev/null; wait "$bw" 2>/dev/null
+  ucsv="$TMP/su-threads.csv"
+  # Arredondamento: user e cpu saem com uma casa cada, e sys e a diferenca.
+  # LC_ALL=C: num locale pt_BR o mawk leria "58.8" como 58.
+  eq "threads: user + sys = cpu" \
+     "$(LC_ALL=C awk -F, 'NR>1 { d = $8 + $9 - $6; if (d > 0.15 || d < -0.15) bad = 1 }
+                 END { print (NR > 1 && !bad) ? "ok" : "divergiu" }' "$ucsv")" "ok" "$out"
+  eq "threads: user acima de sys" \
+     "$(LC_ALL=C awk -F, 'NR>1 { u += $8; s += $9 } END { print (u > s * 1.5) ? "ok" : u "/" s }' "$ucsv")" "ok" "$out"
+  # 80% de um nucleo, com folga para o jitter do escritor e da maquina.
+  eq "threads: cpu da thread medida" \
+     "$(LC_ALL=C awk -F, 'NR>1 { c += $6; n++ } END { m = n ? c / n : 0; print (m >= 50 && m <= 110) ? "ok" : m }' "$ucsv")" \
+     "ok" "$out"
+  # A Worker nao tem status no /proc falso: celula vazia, e nao a linha crua.
+  eq "threads: sem status = afinidade vazia" \
+     "$(awk -F, 'NR==2 {print "[" $11 "]"}' "$ucsv")" "[]" "$out"
+fi
+
+out=$(MONITOR_THREADS_MIN_PCT=abc run_sys -d 1 2>&1)
+contains "sys: MIN_PCT invalido" "$out" "invalid value in MONITOR_THREADS_MIN_PCT: abc"
+
+out=$(MONITOR_THREADS_HOLD_S=-1 run_sys -d 1 2>&1)
+contains "sys: HOLD_S invalido" "$out" "invalid value in MONITOR_THREADS_HOLD_S: -1"
+
+out=$(MONITOR_PROC_ROOT="$TMP/naoexiste" run_monitor sys -d 1 2>&1)
+contains "sys: /proc ilegivel" "$out" "cannot read $TMP/naoexiste/stat"
 
 if runs "sys: sem pid nao cria threads"; then
   run_sys -d 1 -q -o "$TMP/sn.csv" >/dev/null 2>&1
@@ -689,6 +784,183 @@ if runs "sys: resumo mostra a thread"; then
   out=$(run_sys -f pid:4242 -d 1.2 -o "$TMP/sr.csv" 2>&1)
   contains "sys: resumo mostra a thread" "$out" "Render (main) 1"
 fi
+
+# ===========================================================================
+group "perf (-P)"
+# ===========================================================================
+
+# O perf dos mocks: grava os argumentos no -o e o sinal que o encerrou. O
+# paranoid vem do /proc falso, para o resultado nao depender do sysctl da
+# maquina de quem roda a suite.
+mkdir -p "$fakeproc/sys/kernel"
+echo 1 > "$fakeproc/sys/kernel/perf_event_paranoid"
+
+out=$(run_sys -P -d 1 2>&1)
+contains "perf: exige PID" "$out" "--perf needs a target PID"
+
+# Por nome o alvo pode ser varios processos, que nascem e morrem na coleta.
+out=$(run_sys -f dota -P -d 1 2>&1)
+contains "perf: alvo por nome nao basta" "$out" "--perf needs a target PID"
+
+out=$(MONITOR_PERF_FREQ=abc run_sys -f pid:4242 -P -d 1 2>&1)
+contains "perf: frequencia invalida" "$out" "invalid value in MONITOR_PERF_FREQ: abc"
+
+out=$(MONITOR_PERF_FREQ=0 run_sys -f pid:4242 -P -d 1 2>&1)
+contains "perf: frequencia zero" "$out" "invalid value in MONITOR_PERF_FREQ: 0"
+
+if runs "perf: paranoid alto recusa"; then
+  if (( EUID == 0 )); then
+    skip "perf: paranoid alto recusa" "root ignora o paranoid"
+  else
+    echo 4 > "$fakeproc/sys/kernel/perf_event_paranoid"
+    out=$(run_sys -f pid:4242 -P -d 1 2>&1)
+    echo 1 > "$fakeproc/sys/kernel/perf_event_paranoid"
+    contains "perf: paranoid alto recusa" "$out" "perf_event_paranoid=4"
+  fi
+fi
+
+# Um PATH com tudo do sistema menos o perf: e o que a maquina sem
+# linux-tools ve.
+if runs "perf: sem perf instalado"; then
+  mkdir -p "$TMP/noperf"
+  for d in /usr/local/bin /usr/bin /bin; do
+    [[ -d "$d" ]] && ln -s "$d"/* "$TMP/noperf/" 2>/dev/null
+  done
+  rm -f "$TMP/noperf"/perf "$TMP/noperf"/perf_*
+  out=$(PATH="$TMP/noperf" MONITOR_PROC_ROOT="$fakeproc" MONITOR_LOG_DIR="$TMP/logs" \
+        MONITOR_LANG=en "$MONITOR" sys -f pid:4242 -P -d 1 2>&1)
+  contains "perf: sem perf instalado" "$out" "perf not found"
+fi
+
+pbase="$TMP/pf"
+out=$(run_sys -f pid:4242,5151 -P -d 1.2 -o "$pbase.csv" 2>&1)
+pdata=$(cat "$pbase-perf.data" 2>/dev/null)
+contains "perf: record em todos os PIDs" "$pdata" "-p 4242,5151"
+contains "perf: frequencia padrao 49"    "$pdata" "-F 49"
+contains "perf: relogio monotonico"      "$pdata" "-k CLOCK_MONOTONIC"
+contains "perf: grava no -o derivado"    "$pdata" "-o $pbase-perf.data"
+# O perf real so fecha o perf.data direito com SIGINT; o timeout do -d manda
+# esse sinal, e nao o TERM padrao.
+contains "perf: -d encerra com INT"      "$pdata" "stopped: INT"
+eq "perf: .clock com o par de relogios" \
+   "$(grep -cE '^(realtime|monotonic)=[0-9]+\.[0-9]+$' "$pbase-perf.clock" 2>/dev/null)" "2" "$out"
+eq "perf: .clock diz a fonte" \
+   "$(grep -cE '^source=(python3|uptime)$' "$pbase-perf.clock" 2>/dev/null)" "1" "$out"
+contains "perf: banner mostra o arquivo" "$out" "perf in: $pbase-perf.data (49 Hz)"
+contains "perf: rodape mostra o arquivo" "$out" "perf: $pbase-perf.data"
+
+if runs "perf: MONITOR_PERF_FREQ chega ao record"; then
+  MONITOR_PERF_FREQ=99 run_sys -f pid:4242 -P -d 1 -q -o "$TMP/pq.csv" >/dev/null 2>&1
+  contains "perf: MONITOR_PERF_FREQ chega ao record" "$(cat "$TMP/pq-perf.data" 2>/dev/null)" "-F 99"
+fi
+
+# O filtro so com -P: nem proc nem sys ligados, e mesmo assim ele tem uso.
+if runs "perf: filtro aceito so com -P"; then
+  out=$(MONITOR_PROC_ROOT="$fakeproc" run_monitor gpu -b nvidia -f pid:4242 -P -d 1 -q \
+        -o "$TMP/pg.csv" 2>&1)
+  if [[ "$out" != *"only makes sense"* && -s "$TMP/pg-perf.data" ]]; then ok "perf: filtro aceito so com -P"
+  else no "perf: filtro aceito so com -P" "o filtro foi recusado ou o perf nao rodou" "$out"; fi
+fi
+
+# Sem -d, quem encerra o perf e o stop() do monitor - com INT tambem.
+if runs "perf: SIGTERM encerra o perf com INT"; then
+  MONITOR_PROC_ROOT="$fakeproc" PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
+    MONITOR_LANG=en "$MONITOR" sys -f pid:4242 -P -o "$TMP/pt.csv" > "$TMP/pt.out" 2>&1 &
+  if ! term_and_wait $!; then r="o monitor nao encerrou em 5s"
+  elif pgrep -f "$TMP/pt-perf.data" >/dev/null; then r="o perf ficou vivo"
+  else r=$(tail -1 "$TMP/pt-perf.data" 2>/dev/null); fi
+  pkill -f "$TMP/pt-perf.data" 2>/dev/null
+  eq "perf: SIGTERM encerra o perf com INT" "$r" "stopped: INT" "$(cat "$TMP/pt.out")"
+fi
+
+# ===========================================================================
+group "tools/perf-window.sh"
+# ===========================================================================
+
+# Um .clock com a coleta comecando as 14:10:00 locais e o monotonico em 1000:
+# a janela 14:10:24-14:10:26 tem de virar 1024-1026 no relogio do perf.
+PW="$ROOT/tools/perf-window.sh"
+wbase="$TMP/pw"
+: > "$wbase-perf.data"
+printf 'realtime=%s.000000\nmonotonic=1000.000000\nsource=python3\n' \
+  "$(date -d '2026-09-29 14:10:00' +%s)" > "$wbase-perf.clock"
+
+# Saida no formato do "perf script -F comm,tid,time,ip,sym,dso" com -g: o
+# cabecalho da amostra na coluna 0, os quadros indentados por tab, do mais
+# interno para o mais externo; quadros do kernel sem simbolo (kptr_restrict).
+{
+  printf 'GlobPool  4250 1024.100000: \n'
+  printf '\t    7f00aa001234 spin_wait+0x12 (/opt/game/libengine.so)\n'
+  printf '\t    7f00aa005678 job_run+0x40 (/opt/game/libengine.so)\n\n'
+  printf 'GlobPool  4250 1024.200000: \n'
+  printf '\tffffffffa8ef695c [unknown] ([unknown])\n'
+  printf '\t    7f1b7e2f7f0b __sched_yield+0xb (/usr/lib/x86_64-linux-gnu/libc.so.6)\n'
+  printf '\t    7f00aa001234 spin_wait+0x12 (/opt/game/libengine.so)\n\n'
+  printf 'GlobPool  4251 1024.300000: \n'
+  printf '\t    7f00aa001234 spin_wait+0x12 (/opt/game/libengine.so)\n\n'
+  printf 'Render Thread  4260 1024.400000: \n'
+  printf '\t    7f00bb000100 si_flush+0x20 (/usr/lib/x86_64-linux-gnu/dri/radeonsi_dri.so)\n\n'
+  printf 'Render Thread  4260 1024.500000: \n'
+  printf '\tffffffffa8ef695c [unknown] ([unknown])\n'
+  printf '\tffffffffa9162344 [unknown] ([unknown])\n\n'
+} > "$TMP/perf-script.txt"
+
+run_pw() {
+  PATH="$MOCK_DIR/bin:$PATH" MOCK_PERF_SCRIPT="$TMP/perf-script.txt" \
+    MOCK_PERF_LOG="$TMP/perf-script.args" "$PW" "$@" 2>&1
+}
+
+out=$(run_pw "$wbase" 14:10:24 14:10:26 GlobPool)
+contains "perf-window: janela no relogio do perf" "$(cat "$TMP/perf-script.args" 2>/dev/null)" \
+         "--time 1024.000000,1026.000000"
+contains "perf-window: filtra pela thread"      "$out" "3 amostras"
+contains "perf-window: biblioteca da amostra"   "$out" "66.7%       2  libengine.so"
+contains "perf-window: kernel vira biblioteca"  "$out" "33.3%       1  kernel"
+contains "perf-window: primeiro quadro fora do kernel" "$out" "libc.so.6: __sched_yield"
+
+out=$(run_pw "$wbase" 14:10:24 14:10:26)
+contains "perf-window: sem filtro conta tudo"   "$out" "5 amostras"
+contains "perf-window: comm com espaco"         "$out" "40.0%       2  Render Thread"
+contains "perf-window: amostra so no kernel"    "$out" "(so kernel)"
+
+out=$(run_pw "$wbase.csv" 14:10:24 14:10:26 GlobPool)
+contains "perf-window: aceita o caminho com .csv" "$out" "3 amostras"
+
+out=$(run_pw "$wbase-perf.data" 14:10:24 14:10:26 GlobPool)
+contains "perf-window: aceita o proprio perf.data" "$out" "3 amostras"
+
+# Data explicita, para uma coleta que vira a meia-noite.
+if runs "perf-window: aceita data e hora"; then
+  run_pw "$wbase" '2026-09-29 14:10:24' '2026-09-29 14:10:26' >/dev/null
+  contains "perf-window: aceita data e hora" "$(cat "$TMP/perf-script.args" 2>/dev/null)" \
+           "--time 1024.000000,1026.000000"
+fi
+
+if runs "perf-window: thread sem amostras"; then
+  out=$(run_pw "$wbase" 14:10:24 14:10:26 naoexiste); rc=$?
+  eq "perf-window: thread sem amostras" "$rc:${out%%$'\n'*}" \
+     '1:nenhuma amostra nessa janela para "naoexiste"'
+fi
+
+if runs "perf-window: horario invalido para"; then
+  : > "$TMP/perf-script.args"
+  out=$(run_pw "$wbase" 25:99 14:10:26); rc=$?
+  # Tem de parar antes de chamar o perf, e nao seguir com uma janela vazia.
+  eq "perf-window: horario invalido para" \
+     "$rc:$(grep -c 'horario invalido' <<< "$out"):$(wc -c < "$TMP/perf-script.args")" "1:1:0"
+fi
+
+out=$(run_pw "$TMP/naoexiste" 14:10:24 14:10:26)
+contains "perf-window: sem perf.data" "$out" "nao achei $TMP/naoexiste-perf.data"
+
+if runs "perf-window: sem .clock"; then
+  : > "$TMP/pw2-perf.data"
+  out=$(run_pw "$TMP/pw2" 14:10:24 14:10:26)
+  contains "perf-window: sem .clock" "$out" "nao achei $TMP/pw2-perf.clock"
+fi
+
+out=$(run_pw "$wbase" 14:10:24)
+contains "perf-window: poucos argumentos" "$out" "uso: perf-window.sh"
 
 # ===========================================================================
 # resultado

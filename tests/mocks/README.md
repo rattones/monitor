@@ -11,6 +11,7 @@ since there is no Intel GPU on the development machine.
 | `gpu-profiles.sh` | the hardware data each profile reproduces |
 | `bin/nvidia-smi` | fakes `-L`, `--query-gpu` and `-q -d PIDS` |
 | `bin/lspci` | the PCI class line used to name the card |
+| `bin/perf` | fakes `perf record` (for `-P`) and `perf script` (for `tools/perf-window.sh`) |
 | `make-sysfs.sh` | builds a fake `/sys/class/drm` tree for a profile |
 
 ## The point: which files exist, not just which values
@@ -54,6 +55,9 @@ and checking that conversion is the test's job.
 | `MOCK_SAMPLES` | how many samples the stream emits (`0` = until killed) |
 | `MOCK_FAIL` | `driver` (mute driver, exit 9) or `nodevice` |
 | `MONITOR_DRM_ROOT` | sysfs root the AMD/Intel backends read |
+| `MONITOR_PROC_ROOT` | `/proc` root the `sys` collector and `-P` read |
+| `MOCK_PERF_SCRIPT` | file `perf script` prints (a captured real output) |
+| `MOCK_PERF_LOG` | where `perf script` writes its arguments, to check `--time` |
 
 `MONITOR_DRM_ROOT` is the injection point that makes the sysfs backends
 testable. It is defined in `lib/backend.sh` and defaults to `/sys/class/drm`.
@@ -104,3 +108,13 @@ The `lspci` mock returns a line with the `VGA compatible controller` class,
 because the backends filter on that before trusting the name. That filter exists
 for a reason: without it, a slot pointing at something else would give a GPU the
 name of a network card, silently.
+
+The `perf` mock's `record` writes its arguments into the `-o` file and stays
+alive until a signal arrives, then appends which one (`stopped: INT`). The real
+`perf` only closes `perf.data` cleanly on SIGINT, so the signal is what the tests
+check. That part is in perl, not bash: the monitor starts `perf` with `&`, and a
+non-interactive shell starts background children with SIGINT ignored — bash
+cannot trap a signal that arrived ignored, while perl (and the real `perf`)
+install their own handler over it. `perf script` output follows the real
+format: sample header at column 0, frames indented by a tab, kernel frames
+without symbols.

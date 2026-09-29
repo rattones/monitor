@@ -11,6 +11,7 @@ que não há GPU Intel na máquina de desenvolvimento.
 | `gpu-profiles.sh` | os dados de hardware que cada perfil reproduz |
 | `bin/nvidia-smi` | finge `-L`, `--query-gpu` e `-q -d PIDS` |
 | `bin/lspci` | a linha de classe PCI usada para nomear a placa |
+| `bin/perf` | simula o `perf record` (do `-P`) e o `perf script` (do `tools/perf-window.sh`) |
 | `make-sysfs.sh` | monta uma árvore `/sys/class/drm` falsa de um perfil |
 
 ## O ponto: quais arquivos existem, não só quais valores
@@ -54,6 +55,9 @@ conferir essa conversão é trabalho do teste.
 | `MOCK_SAMPLES` | quantas amostras o fluxo emite (`0` = até ser morto) |
 | `MOCK_FAIL` | `driver` (driver mudo, sai com 9) ou `nodevice` |
 | `MONITOR_DRM_ROOT` | raiz do sysfs que os backends AMD/Intel leem |
+| `MONITOR_PROC_ROOT` | raiz do `/proc` que o coletor `sys` e o `-P` leem |
+| `MOCK_PERF_SCRIPT` | arquivo que o `perf script` imprime (uma saída real capturada) |
+| `MOCK_PERF_LOG` | onde o `perf script` grava os argumentos, para conferir o `--time` |
 
 `MONITOR_DRM_ROOT` é o ponto de injeção que torna os backends de sysfs
 testáveis. Está definido em `lib/backend.sh` e aponta para `/sys/class/drm` por
@@ -105,3 +109,13 @@ O mock do `lspci` devolve uma linha com a classe `VGA compatible controller`,
 porque os backends filtram por ela antes de confiar no nome. Esse filtro existe
 por um motivo: sem ele, um slot apontando para outra coisa daria a uma GPU o
 nome de uma placa de rede, silenciosamente.
+
+O `record` do mock do `perf` grava os argumentos no arquivo do `-o` e fica vivo
+até chegar um sinal, e então anota qual foi (`stopped: INT`). O `perf` real só
+fecha o `perf.data` direito com SIGINT, então o sinal é o que os testes conferem.
+Essa parte é em perl, não em bash: o monitor lança o `perf` com `&`, e um shell
+não interativo inicia os filhos em background com SIGINT ignorado — o bash não
+consegue capturar um sinal que já chegou ignorado, enquanto o perl (e o `perf`
+real) instalam o próprio tratador por cima. A saída do `perf script` segue o
+formato real: cabeçalho da amostra na coluna 0, quadros indentados por tab,
+quadros do kernel sem símbolo.

@@ -37,9 +37,10 @@ resolve_perf() {
   # Sem root, o perf so acompanha processos do proprio usuario com
   # perf_event_paranoid <= 1. O padrao do Ubuntu e 4, e ai o record falharia
   # com uma mensagem longa e pouco clara - melhor dizer o que fazer antes.
+  # PROC_ROOT vem do sys.sh: a suite aponta para um /proc falso.
   if (( EUID != 0 )); then
     local paranoid
-    paranoid=$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null || echo 4)
+    paranoid=$(cat "$PROC_ROOT/sys/kernel/perf_event_paranoid" 2>/dev/null || echo 4)
     (( paranoid <= 1 )) || die "$(msg perf_paranoid "$paranoid")"
   fi
 }

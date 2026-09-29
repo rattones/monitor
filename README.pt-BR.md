@@ -360,7 +360,7 @@ que falta, em vez de falhar no meio de uma coleta.
 ## Testes
 
 ```bash
-./tests/run-tests.sh          # 129 testes, cerca de um minuto
+./tests/run-tests.sh          # 184 testes, cerca de um minuto
 ./tests/run-tests.sh -v amd   # filtra e mostra a saída das falhas
 ```
 

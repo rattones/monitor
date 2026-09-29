@@ -355,7 +355,7 @@ missing, rather than failing halfway through a collection.
 ## Tests
 
 ```bash
-./tests/run-tests.sh          # 129 tests, about a minute
+./tests/run-tests.sh          # 184 tests, about a minute
 ./tests/run-tests.sh -v amd   # filter, show output of failures
 ```
 

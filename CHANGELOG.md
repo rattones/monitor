@@ -24,13 +24,25 @@ one printed by `monitor --version`.
 - `<output>-threads.csv` gains four columns: `user_pct` and `sys_pct`
   (`cpu_pct` split between the program's code and the kernel), `last_cpu` and
   `affinity`.
-- 3 new tests (129 in total).
+- 58 new tests (184 in total): `-P` against a fake `perf`, `perf-window.sh`,
+  the user/kernel CPU split against a thread that really burns CPU on the
+  collector's clock, and argument, filter and disk errors that had no test.
 
 ### Changed
 
 - **Breaking for CSV readers:** `<output>-threads.csv` now has 11 columns
   instead of 7; the new ones are appended at the end.
 - `-f/--filter` is also accepted when only `-P` would use it.
+- `-P` reads `perf_event_paranoid` under `MONITOR_PROC_ROOT`, like the `sys`
+  collector, so the tests do not depend on the machine's sysctl.
+
+### Fixed
+
+- The "no orphan FIFOs" test counted every `gpumon*` in `/tmp`, so it failed
+  whenever a real `monitor` was running on the same machine; it now uses a
+  `TMPDIR` of its own.
+- `tools/perf-window.sh` went on with an empty window after an invalid time,
+  instead of stopping.
 
 ## [3.3] — 2026-09-29
 

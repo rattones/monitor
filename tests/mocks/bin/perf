@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+#
+# perf falso, para os testes. Reproduz as duas invocacoes do projeto:
+#
+#   record ... -o ARQ    o que o monitor -P roda; grava os argumentos em ARQ e
+#                        fica vivo ate receber um sinal, que tambem vai para ARQ
+#                        ("stopped: INT"): o perf real so fecha o perf.data
+#                        direito com SIGINT, entao o sinal e o que se confere
+#   script ...           o que o tools/perf-window.sh roda; imprime o arquivo de
+#                        MOCK_PERF_SCRIPT (saida capturada de um perf real) e
+#                        grava os argumentos em MOCK_PERF_LOG, para conferir a
+#                        janela --time que o script calculou
+#
+# O perf.data do mock e texto, nao o formato binario: ninguem alem do proprio
+# mock o le.
+
+set -uo pipefail
+
+case "${1-}" in
+  record)
+    shift
+    out="perf.data"; args=("$@")
+    while [[ $# -gt 0 ]]; do
+      [[ "$1" == -o ]] && { out="$2"; shift; }
+      shift
+    done
+    printf 'args: %s\n' "${args[*]}" > "$out"
+    # Em perl, e nao com trap: o monitor lanca o perf com "&", e um script
+    # nao interativo nasce com SIGINT ignorado nos filhos em background. O bash
+    # nao consegue capturar um sinal que ja veio ignorado; o perf real (e o
+    # perl) instalam o proprio tratador por cima.
+    exec perl -e '
+      my $out = shift;
+      sub stop { open(my $f, ">>", $out); print $f "stopped: $_[0]\n"; close $f; exit($_[0] eq "INT" ? 0 : 143) }
+      $SIG{INT} = sub { stop("INT") }; $SIG{TERM} = sub { stop("TERM") };
+      sleep 1 while 1;
+    ' "$out"
+    ;;
+  script)
+    shift
+    [[ -n "${MOCK_PERF_LOG:-}" ]] && printf '%s\n' "$*" > "$MOCK_PERF_LOG"
+    cat "${MOCK_PERF_SCRIPT:?MOCK_PERF_SCRIPT nao definido}"
+    ;;
+  *)
+    printf 'perf falso: subcomando nao simulado: %s\n' "${1-}" >&2
+    exit 1
+    ;;
+esac

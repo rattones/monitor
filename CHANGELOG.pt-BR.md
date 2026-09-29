@@ -25,13 +25,26 @@ Todas as mudanças relevantes do projeto. O formato segue o
 - `<saida>-threads.csv` ganha quatro colunas: `user_pct` e `sys_pct` (o
   `cpu_pct` dividido entre o código do programa e o kernel), `last_cpu` e
   `affinity`.
-- 3 testes novos (129 no total).
+- 58 testes novos (184 no total): o `-P` contra um `perf` falso, o
+  `perf-window.sh`, a divisão usuário/kernel contra uma thread que gasta CPU de
+  verdade no relógio do coletor, e erros de argumento, filtro e disco que não
+  tinham teste.
 
 ### Alterado
 
 - **Incompatível para quem lê o CSV:** `<saida>-threads.csv` passa de 7 para 11
   colunas; as novas vêm no fim.
 - `-f/--filter` é aceito também quando só o `-P` o usaria.
+- O `-P` lê o `perf_event_paranoid` sob o `MONITOR_PROC_ROOT`, como o coletor
+  `sys`, para os testes não dependerem do sysctl da máquina.
+
+### Corrigido
+
+- O teste "sem FIFOs órfãos" contava todo `gpumon*` do `/tmp` e falhava sempre
+  que um `monitor` de verdade rodava na mesma máquina; agora usa um `TMPDIR`
+  próprio.
+- O `tools/perf-window.sh` seguia com uma janela vazia depois de um horário
+  inválido, em vez de parar.
 
 ## [3.3] — 2026-09-29
 
