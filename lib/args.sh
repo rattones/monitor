@@ -2,7 +2,7 @@
 #
 # args.sh - subcomando, opcoes e validacao.
 
-CMD="all"         # all | gpu | disk | proc
+CMD="all"         # all | gpu | disk | proc | sys
 INTERVAL_MS=500   # milissegundos entre amostras - a unidade de -i
 DURATION=0        # 0 = roda ate Ctrl+C
 OUTPUT=""         # padrao: logs/monitor-<data>.csv
@@ -11,9 +11,10 @@ QUIET=0
 PROCS_MODE="all"  # all | compute | off
 TOP_N=5           # quantos processos no resumo final
 DISK_MODE="all"   # all | off | lista de dispositivos
+SYS_MODE="all"    # all | off
 GPU_BACKEND=""    # vazio = autodeteccao
 
-WANT_GPU=0; WANT_DISK=0; WANT_PROC=0
+WANT_GPU=0; WANT_DISK=0; WANT_PROC=0; WANT_SYS=0
 
 # O intervalo em segundos, derivado de INTERVAL_MS. Quem cadencia por sleep
 # (o awk do disco) precisa de segundos com fracao; quem passa o valor adiante
@@ -24,7 +25,7 @@ parse_args() {
   # O subcomando, quando existe, vem primeiro. Sem ele o padrao e "all", para
   # nao quebrar quem ja chama o script so com opcoes.
   case "${1-}" in
-    all|gpu|disk|proc) CMD="$1"; shift ;;
+    all|gpu|disk|proc|sys) CMD="$1"; shift ;;
   esac
 
   # "$1" e o nome da opcao; exigir o valor aqui evita o loop infinito de um
@@ -39,34 +40,37 @@ parse_args() {
       -g|--gpu)      eval "$need"; GPU_IDX="$2";  shift 2 ;;
       -p|--procs)    eval "$need"; PROCS_MODE="$2"; shift 2 ;;
       -D|--disk)     eval "$need"; DISK_MODE="$2";  shift 2 ;;
+      -S|--sys)      eval "$need"; SYS_MODE="$2";   shift 2 ;;
       -f|--filter)   eval "$need"; add_filter "$2"; shift 2 ;;
       -t|--top)      eval "$need"; TOP_N="$2";    shift 2 ;;
       -b|--backend)  eval "$need"; GPU_BACKEND="$2"; shift 2 ;;
       -q|--quiet)    QUIET=1; shift ;;
       -h|--help)     usage; exit 0 ;;
       -V|--version)  printf 'monitor %s\n' "$VERSION"; exit 0 ;;
-      all|gpu|disk|proc) die "$(msg args_subcmd_order "${0##*/}" "$1")" ;;
+      all|gpu|disk|proc|sys) die "$(msg args_subcmd_order "${0##*/}" "$1")" ;;
       *) die "$(msg args_unknown_opt "$1")" ;;
     esac
   done
 }
 
-# Traduz subcomando + modos para os tres interruptores que o resto do script usa.
+# Traduz subcomando + modos para os interruptores que o resto do script usa.
 # -p off e -D off continuam valendo dentro de "all", entao ha duas formas de
 # desligar um coletor: nao pedi-lo no subcomando, ou desliga-lo pela opcao.
 resolve_targets() {
   case "$CMD" in
-    all)  WANT_GPU=1; WANT_DISK=1; WANT_PROC=1 ;;
+    all)  WANT_GPU=1; WANT_DISK=1; WANT_PROC=1; WANT_SYS=1 ;;
     gpu)  WANT_GPU=1 ;;
     disk) WANT_DISK=1 ;;
     proc) WANT_PROC=1 ;;
+    sys)  WANT_SYS=1 ;;
   esac
   [[ "$PROCS_MODE" == off ]] && WANT_PROC=0
   [[ "$DISK_MODE"  == off ]] && WANT_DISK=0
+  [[ "$SYS_MODE"   == off ]] && WANT_SYS=0
 
   # Um subcomando cujo unico coletor foi desligado pela opcao nao coletaria
   # nada: melhor dizer isso do que criar um CSV vazio.
-  (( WANT_GPU || WANT_DISK || WANT_PROC )) \
+  (( WANT_GPU || WANT_DISK || WANT_PROC || WANT_SYS )) \
     || die "$(msg args_nothing_to_collect "$CMD")"
 }
 
@@ -89,7 +93,14 @@ validate_args() {
     *) die "$(msg args_procs_mode "$PROCS_MODE")" ;;
   esac
 
-  if [[ -n "$FILTER_RAW" ]] && (( ! WANT_PROC )); then
+  case "$SYS_MODE" in
+    all|off) ;;
+    *) die "$(msg args_sys_mode "$SYS_MODE")" ;;
+  esac
+
+  # O filtro serve a dois coletores: o de processos filtra a VRAM, o de sistema
+  # segue as threads dos PIDs. Sem nenhum dos dois, ele nao teria efeito.
+  if [[ -n "$FILTER_RAW" ]] && (( ! WANT_PROC && ! WANT_SYS )); then
     die "$(msg args_filter_needs_procs)"
   fi
 

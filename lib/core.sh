@@ -45,12 +45,13 @@ stop() {
   fi
 
   [[ -n "$DISK_PID" ]] && kill "$DISK_PID" 2>/dev/null
+  [[ -n "$SYS_PID" ]]  && kill "$SYS_PID" 2>/dev/null
   return 0
 }
 
 cleanup() {
   local p
-  for p in "$GPU_SRC_PID" "$PROC_SRC_PID" "$GPU_AWK_PID" "$PROC_AWK_PID" "$DISK_PID"; do
+  for p in "$GPU_SRC_PID" "$PROC_SRC_PID" "$GPU_AWK_PID" "$PROC_AWK_PID" "$DISK_PID" "$SYS_PID"; do
     [[ -n "$p" ]] && kill "$p" 2>/dev/null
   done
   local f

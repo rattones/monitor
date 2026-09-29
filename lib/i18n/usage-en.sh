@@ -7,15 +7,16 @@
 # working and stays editable. Sourced by usage_text() in lib/i18n.sh.
 
 cat <<EOF
-monitor.sh v$VERSION - GPU/VRAM, process and disk monitor, CSV output
+monitor.sh v$VERSION - GPU/VRAM, process, disk and system monitor, CSV output
 
 Usage: ${0##*/} [subcommand] [options]
 
 Subcommands:
-  all      Collect GPU, processes and disk (the default when none is given)
+  all      Collect GPU, processes, disk and system (the default when none is given)
   gpu      GPU metrics only
   disk     Disk I/O and temperature only
   proc     Per-process VRAM only
+  sys      CPU, memory, PSI and the threads of the -f PIDs only
 
 Common options:
   -i, --interval MS    Interval between samples, in milliseconds
@@ -33,7 +34,7 @@ GPU options (subcommands all, gpu, proc):
                        Available: $(backend_list | paste -sd" ")
                        Only NVIDIA collects per-process VRAM today.
 
-Process options (subcommands all, proc):
+Process options (subcommands all, proc; -f pid:N also applies to sys):
   -p, --procs MODE     Per-process VRAM attribution (default: all)
                          all     - compute (C) and graphics (G) processes
                          compute - CUDA/compute contexts only (C)
@@ -61,10 +62,21 @@ Disk options (subcommands all, disk):
                          LIST    - devices separated by commas
                                    (e.g. -D nvme0n1 or -D sda,sdb)
 
+System options (subcommands all, sys):
+  -S, --sys MODE       CPU, memory, PSI and target threads (default: all)
+                         all     - collect
+                         off     - do not collect
+                       Threads are only followed for PIDs given as -f pid:N.
+                       A thread enters the CSV once it uses 1% of a core and
+                       stays for 10 s after it stops: that is when its wchan
+                       shows what stalled it.
+
 Outputs (only the files of the active collectors are created):
   <output>.csv         one line per GPU per sample (usage, VRAM, temperature...)
   <output>-procs.csv   one line per process per sample (VRAM charged to the PID)
   <output>-disk.csv    one line per disk per sample (read/write and temperature)
+  <output>-sys.csv     one line per sample (CPU, memory, PSI and the target in aggregate)
+  <output>-threads.csv one line per active target thread per sample (only with -f pid:N)
 
 Columns of <output>.csv:
   timestamp          local ISO-8601, with milliseconds
@@ -99,6 +111,36 @@ Columns of <output>-disk.csv:
   util_pct           % of time with at least one request in flight
   temp_c             disk temperature (empty if there is no sensor)
 
+Columns of <output>-sys.csv:
+  timestamp          local ISO-8601, with milliseconds (10 ms resolution)
+  cpu_util_pct       % CPU busy, averaged over all cores
+  cpu_iowait_pct     % of CPU time idle waiting for I/O
+  cpu_max_core_pct   % of the busiest core - a game bound to one thread
+                     saturates a core while the average stays low
+  cpu_max_core       which core that was
+  mem_used_mib       memory in use (total - available)
+  mem_avail_mib      available memory
+  swap_used_mib      swap in use
+  psi_cpu_pct        % of the interval with some task waiting for CPU (PSI)
+  psi_mem_pct        same, waiting for memory
+  psi_io_pct         same, waiting for I/O
+  proc_cpu_pct       CPU of the -f PIDs, in % of one core (empty without target)
+  proc_threads       target threads
+  proc_running       target threads running (state R)
+  proc_dstate        target threads in D (I/O or kernel, uninterruptible)
+  proc_majflt_s      major page faults per second (pages read from disk)
+
+Columns of <output>-threads.csv:
+  timestamp          the same as the matching <output>-sys.csv line
+  pid, tid           process and thread
+  thread_name        thread name (commas become _)
+  state              R running, S sleeping, D uninterruptible...
+  cpu_pct            thread CPU in the interval, in % of one core
+  wchan              kernel function the thread sleeps in: futex_* (lock
+                     between threads), poll/select (socket: X11, audio,
+                     network), video driver functions (waiting for the GPU);
+                     0 while running
+
 A metric the hardware does not report becomes an empty cell, never zero: zero is
 a measured value, empty is the absence of a measurement.
 
@@ -114,4 +156,6 @@ collection is still running.
 Environment:
   MONITOR_LANG         Force the language (e.g. en, pt), ignoring the locale
   MONITOR_LOG_DIR      Where the CSVs go (default: \$HOME/.monitor/log)
+  MONITOR_THREADS_MIN_PCT  Minimum CPU for a thread to enter the CSV (default: 1)
+  MONITOR_THREADS_HOLD_S   Seconds it stays after going idle (default: 10)
 EOF

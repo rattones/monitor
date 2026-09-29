@@ -4,8 +4,9 @@
 
 Amostra o uso da GPU — incluindo VRAM — e grava em CSV, por padrão duas amostras
 por segundo. Grava também um CSV atribuindo a VRAM a cada processo, para ligar o
-churn de memória a quem o causa, e um CSV com leitura/escrita e temperatura dos
-discos.
+churn de memória a quem o causa, um CSV com leitura/escrita e temperatura dos
+discos, e um CSV com CPU, memória e pressão — mais, para um PID-alvo, o que cada
+thread dele estava fazendo.
 
 ```bash
 ./monitor.sh -d 300
@@ -20,7 +21,7 @@ intervalo: 500ms | duracao: 300s | Ctrl+C para parar
 09:58:22  GPU0  util  35%   vram   812/4096 MiB (19.8%)   temp  53 C    26.10 W
 ```
 
-Três coletores na mesma linha do tempo: GPU, VRAM por processo e disco,
+Quatro coletores na mesma linha do tempo: GPU, VRAM por processo, disco e sistema,
 amostrados no mesmo relógio, então os CSVs se juntam pelo timestamp. Sem daemon,
 sem dependência além de bash e awk, e com flush a cada amostra — dá para plotar
 enquanto a coleta ainda roda.
@@ -49,24 +50,27 @@ monitor -q -d 60 &           # em segundo plano, sem saída na tela
 
 ### Subcomandos
 
-Os três coletores são independentes e podem rodar isolados. Sem subcomando, o
+Os quatro coletores são independentes e podem rodar isolados. Sem subcomando, o
 padrão é `all`.
 
 | Subcomando | O que coleta | Arquivo |
 |---|---|---|
-| `all` (padrão) | GPU, processos e disco | os três |
+| `all` (padrão) | GPU, processos, disco e sistema | todos |
 | `gpu` | só as métricas da GPU | `<saída>.csv` |
 | `disk` | só I/O e temperatura dos discos | `<saída>-disk.csv` |
 | `proc` | só a VRAM por processo | `<saída>-procs.csv` |
+| `sys` | CPU, memória, PSI e threads do alvo | `<saída>-sys.csv`, `<saída>-threads.csv` |
 
 ```bash
 monitor disk -D nvme0n1 -d 60   # só o disco
 monitor proc -f chrome          # só os processos, filtrando
 monitor gpu -i 250              # só a GPU, 4 amostras/s
+monitor sys -f pid:4242         # o sistema, mais as threads do PID 4242
 ```
 
-O subcomando vem **antes** das opções. `disk` não precisa de GPU nenhuma: lê
-apenas `/proc` e `/sys`, então roda numa máquina sem `nvidia-smi`.
+O subcomando vem **antes** das opções. `disk` e `sys` não precisam de GPU
+nenhuma: leem apenas `/proc` e `/sys`, então rodam numa máquina sem
+`nvidia-smi`.
 
 ### Opções
 
@@ -80,7 +84,8 @@ apenas `/proc` e `/sys`, então roda numa máquina sem `nvidia-smi`.
 | `-p, --procs MODO` | `all` (padrão) = compute e gráficos; `compute` = só CUDA; `off` = não coleta |
 | `-f, --filter ALVO` | Monitora só estes processos — PID ou nome, separados por vírgula, opção repetível |
 | `-D, --disk MODO` | `all` (padrão) = todos os discos físicos; `off` = não coleta; ou uma lista (`nvme0n1`, `sda,sdb`) |
-| `-t, --top N` | Quantos processos no resumo final (padrão `5`; `0` desliga) |
+| `-S, --sys MODO` | `all` (padrão) = CPU, memória, PSI e threads do alvo; `off` = não coleta |
+| `-t, --top N` | Quantos processos/threads no resumo final (padrão `5`; `0` desliga) |
 | `-q, --quiet` | Só grava os CSVs, sem imprimir na tela |
 | `-h, --help` | Ajuda |
 | `-V, --version` | Versão |
@@ -221,6 +226,50 @@ Detalhes que valem saber:
   discos reais, contando duas vezes.
 - Não precisa de root nem de `smartctl`.
 
+### `<saída>-sys.csv` — uma linha por amostra
+
+Responde o que as métricas da GPU sozinhas não respondem: quando a GPU fica
+ociosa no meio de um jogo, quem parou de mandar trabalho para ela?
+
+| Coluna | Significado |
+|---|---|
+| `timestamp` | com milissegundos, como o CSV da GPU (resolução de 10 ms) |
+| `cpu_util_pct` / `cpu_iowait_pct` | CPU ocupada e CPU ociosa esperando I/O, média de todos os núcleos |
+| `cpu_max_core_pct` / `cpu_max_core` | o núcleo mais ocupado e qual foi — um jogo preso numa thread satura um núcleo com a média ainda baixa |
+| `mem_used_mib` / `mem_avail_mib` / `swap_used_mib` | memória em uso, disponível, e swap em uso |
+| `psi_cpu_pct` / `psi_mem_pct` / `psi_io_pct` | % do intervalo com alguma tarefa travada esperando CPU, memória ou I/O ([PSI](https://docs.kernel.org/accounting/psi.html)) |
+| `proc_cpu_pct` | CPU dos alvos de `-f pid:N`, em % de um núcleo (vazio sem alvo) |
+| `proc_threads` / `proc_running` / `proc_dstate` | threads do alvo: total, rodando (R) e não interrompíveis (D) |
+| `proc_majflt_s` | page faults maiores do alvo por segundo — páginas que vieram do disco |
+
+### `<saída>-threads.csv` — uma linha por thread ativa do alvo por amostra
+
+Só é criado com `-f pid:N`. Por nome, o alvo pode casar com vários processos
+que nascem e morrem, e seguir as threads de um alvo móvel geraria um arquivo
+sem uma pergunta clara por trás.
+
+| Coluna | Significado |
+|---|---|
+| `timestamp` | o mesmo da linha correspondente do `-sys.csv` |
+| `pid` / `tid` / `thread_name` | processo, thread e nome da thread |
+| `state` | `R` rodando, `S` dormindo, `D` não interrompível… |
+| `cpu_pct` | CPU da thread no intervalo, em % de um núcleo |
+| `wchan` | a função do kernel em que a thread está dormindo |
+
+Uma thread entra no arquivo quando gasta 1% de um núcleo e **fica por mais 10
+segundos depois de parar**. A retenção é o ponto: numa parada, a thread de
+render deixa de gastar CPU justamente quando o `wchan` dela fica interessante.
+Threads em `D` sempre entram. Ajuste com `MONITOR_THREADS_MIN_PCT` e
+`MONITOR_THREADS_HOLD_S`.
+
+Lendo o `wchan`: `futex_*` é um lock ou fila entre threads; `poll_*`,
+`do_select` e `ep_poll` são esperas num socket ou pipe (X11, áudio, rede); uma
+função do driver de vídeo é espera pela GPU; `0` é rodando.
+
+Por que `wchan` e não a pilha: `/proc/<pid>/task/<tid>/stack` e `syscall`
+exigem ptrace, que o Yama (`ptrace_scope=1`, padrão no Ubuntu) nega para
+processos que não são filhos do monitor. O `wchan` só exige leitura.
+
 ### Métrica não reportada fica vazia, nunca zero
 
 Zero é um valor medido; vazio é a ausência de medida. Todo backend escreve as
@@ -262,6 +311,7 @@ lib/
 ├── args.sh             subcomando, opções, validação
 ├── filter.sh           alvos de --filter
 ├── disk.sh             coleta de disco (não depende de GPU)
+├── sys.sh              coleta de CPU, memória, PSI e threads (não depende de GPU)
 ├── report.sh           banner, resumos, rodapé
 ├── i18n.sh             detecção de idioma e catálogo
 ├── i18n/               mensagens e ajuda por idioma
@@ -280,7 +330,7 @@ que falta, em vez de falhar no meio de uma coleta.
 ## Testes
 
 ```bash
-./tests/run-tests.sh          # 106 testes, cerca de um minuto
+./tests/run-tests.sh          # 126 testes, cerca de um minuto
 ./tests/run-tests.sh -v amd   # filtra e mostra a saída das falhas
 ```
 
@@ -318,6 +368,12 @@ awk -F, 'FNR==1 { next }
 awk -F, 'NR>1 { if (!(($3) in first)) first[$3]=$6; last[$3]=$6; name[$3]=$5 }
          END { for (p in last) printf "%-24s pid %-7s %+6d MiB\n", name[p], p, last[p]-first[p] }' \
     ~/.monitor/log/monitor-*-procs.csv | sort -k4 -n
+
+# a GPU ficou ociosa: o que as threads do alvo faziam? (colete com -f pid:N)
+awk -F, 'FNR==1 { next }
+         FILENAME !~ /-threads/ { if ($4 == 0) idle[substr($1,1,19)] = 1; next }
+         substr($1,1,19) in idle { printf "%s  %-20s %s %5.1f%%  %s\n", $1, $4, $5, $6, $7 }' \
+    ~/.monitor/log/jogo-*[0-9].csv ~/.monitor/log/jogo-*-threads.csv
 ```
 
 ## Por que não `--query-compute-apps`
@@ -329,6 +385,10 @@ vazia — sem atribuir nada. Este script usa `nvidia-smi -q -d PIDS`, que traz a
 duas famílias com o tipo explícito; `--procs compute` mantém quem tem contexto
 de compute (`C` e também `C+G`, como um jogo que usa CUDA e vídeo ao mesmo
 tempo) e reproduz o recorte do `--query-compute-apps`.
+
+## Changelog
+
+O que mudou em cada versão: [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.md).
 
 ## Licença
 

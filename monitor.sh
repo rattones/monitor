@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 #
-# monitor.sh - amostra o uso da GPU (incluindo VRAM), a VRAM por processo e
-# o I/O/temperatura dos discos, gravando um CSV para cada um.
+# monitor.sh - amostra o uso da GPU (incluindo VRAM), a VRAM por processo, o
+# I/O/temperatura dos discos e a CPU/memoria do sistema, gravando um CSV para
+# cada um.
 #
-# Os tres coletores sao independentes e escolhidos por subcomando:
+# Os quatro coletores sao independentes e escolhidos por subcomando:
 #
-#   ./monitor.sh            # all: os tres (padrao)
+#   ./monitor.sh            # all: os quatro (padrao)
 #   ./monitor.sh gpu        # so as metricas da GPU
 #   ./monitor.sh disk       # so o I/O de disco
 #   ./monitor.sh proc       # so a VRAM por processo
+#   ./monitor.sh sys        # so CPU, memoria, PSI e as threads do alvo
 #
 # O codigo mora em lib/: cada modulo cuida de uma coisa, e o que e especifico de
 # um fabricante de GPU fica em lib/backends/<nome>.sh, atras do contrato descrito
@@ -16,7 +18,7 @@
 
 set -uo pipefail
 
-VERSION="3.2"
+VERSION="3.3"
 
 # readlink -f resolve a cadeia de symlinks ate o arquivo real: instalado, o
 # comando em /usr/local/bin e um link, e sem isto o lib/ seria procurado ao
@@ -29,7 +31,7 @@ LIB_DIR="${MONITOR_LIB_DIR:-$SCRIPT_DIR/lib}"
 # A ordem importa: i18n.sh vem primeiro porque o die() de core.sh usa msg();
 # core.sh define esse die(), que todos os outros usam; e backend.sh define o
 # backend_call() de que filter.sh e report.sh dependem.
-for _m in i18n core backend csv filter args disk report; do
+for _m in i18n core backend csv filter args disk sys report; do
   # shellcheck source=/dev/null
   . "$LIB_DIR/$_m.sh" || { printf 'error: could not load lib/%s.sh\n' "$_m" >&2; exit 1; }
 done
@@ -66,6 +68,7 @@ main() {
 
   (( WANT_GPU || WANT_PROC )) && setup_backend
   (( WANT_DISK )) && resolve_disks
+  (( WANT_SYS ))  && resolve_sys
 
   setup_outputs
 
@@ -77,12 +80,14 @@ main() {
   (( WANT_GPU ))  && backend_call start_gpu
   (( WANT_PROC )) && backend_call start_proc
   (( WANT_DISK )) && start_disk
+  (( WANT_SYS ))  && start_sys
 
   # Os awks rodam em background e o shell espera: assim um sinal e tratado na
   # hora, em vez de ficar pendurado ate um pipeline em foreground terminar.
   wait_for "$GPU_AWK_PID";  GPU_AWK_PID=""
   wait_for "$PROC_AWK_PID"; PROC_AWK_PID=""
   wait_for "$DISK_PID";     DISK_PID=""
+  wait_for "$SYS_PID";      SYS_PID=""
 
   [[ -n "$GPU_SRC_PID"  ]] && { wait "$GPU_SRC_PID"  2>/dev/null; GPU_SRC_PID=""; }
   [[ -n "$PROC_SRC_PID" ]] && { wait "$PROC_SRC_PID" 2>/dev/null; PROC_SRC_PID=""; }
@@ -91,6 +96,7 @@ main() {
   (( WANT_PROC )) && warn_empty_filter
   (( ! QUIET && WANT_PROC )) && summarize_proc
   (( ! QUIET && WANT_DISK )) && summarize_disk
+  (( ! QUIET && WANT_SYS ))  && summarize_sys
 
   print_footer
   return 0

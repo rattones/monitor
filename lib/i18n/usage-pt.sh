@@ -7,15 +7,16 @@
 # funcionando e o texto editavel. Carregado por usage_text() em lib/i18n.sh.
 
 cat <<EOF
-monitor.sh v$VERSION - monitor de GPU/VRAM, processos e disco, em CSV
+monitor.sh v$VERSION - monitor de GPU/VRAM, processos, disco e sistema, em CSV
 
 Uso: ${0##*/} [subcomando] [opcoes]
 
 Subcomandos:
-  all      Coleta GPU, processos e disco (padrao quando nenhum e informado)
+  all      Coleta GPU, processos, disco e sistema (padrao quando nenhum e informado)
   gpu      So as metricas da GPU
   disk     So o I/O e a temperatura dos discos
   proc     So a VRAM atribuida a cada processo
+  sys      So CPU, memoria, PSI e as threads dos PIDs de -f
 
 Opcoes comuns:
   -i, --interval MS    Intervalo entre amostras, em milissegundos
@@ -33,7 +34,7 @@ Opcoes de GPU (subcomandos all, gpu, proc):
                        Disponiveis: $(backend_list | paste -sd" ")
                        So NVIDIA coleta hoje; AMD e Intel sao esqueletos.
 
-Opcoes de processos (subcomandos all, proc):
+Opcoes de processos (subcomandos all, proc; -f pid:N vale tambem para sys):
   -p, --procs MODO     Atribuicao de VRAM por processo (padrao: all)
                          all     - processos de compute (C) e graficos (G)
                          compute - so contextos CUDA/compute (C)
@@ -61,10 +62,21 @@ Opcoes de disco (subcomandos all, disk):
                          LISTA   - dispositivos separados por virgula
                                    (ex: -D nvme0n1 ou -D sda,sdb)
 
+Opcoes de sistema (subcomandos all, sys):
+  -S, --sys MODO       CPU, memoria, PSI e threads do alvo (padrao: all)
+                         all     - coleta
+                         off     - nao coleta
+                       As threads so sao seguidas para PIDs dados em -f pid:N.
+                       Uma thread entra no CSV quando gasta 1% de um nucleo e
+                       fica por mais 10 s depois de parar: e nesse momento que o
+                       wchan dela mostra o que a travou.
+
 Saidas (so os arquivos dos coletores ativos sao criados):
   <saida>.csv          uma linha por GPU por amostra (uso, VRAM, temperatura...)
   <saida>-procs.csv    uma linha por processo por amostra (VRAM atribuida ao PID)
   <saida>-disk.csv     uma linha por disco por amostra (leitura/escrita e temperatura)
+  <saida>-sys.csv      uma linha por amostra (CPU, memoria, PSI e o alvo agregado)
+  <saida>-threads.csv  uma linha por thread ativa do alvo por amostra (so com -f pid:N)
 
 Colunas de <saida>.csv:
   timestamp          ISO-8601 local, com milissegundos
@@ -99,6 +111,35 @@ Colunas de <saida>-disk.csv:
   util_pct           % de tempo com pelo menos uma requisicao em voo
   temp_c             temperatura do disco (vazio se nao houver sensor)
 
+Colunas de <saida>-sys.csv:
+  timestamp          ISO-8601 local, com milissegundos (resolucao de 10 ms)
+  cpu_util_pct       % de CPU ocupada, media de todos os nucleos
+  cpu_iowait_pct     % do tempo de CPU ocioso esperando I/O
+  cpu_max_core_pct   % do nucleo mais ocupado - um jogo preso numa thread
+                     satura um nucleo com a media ainda baixa
+  cpu_max_core       qual nucleo foi esse
+  mem_used_mib       memoria em uso (total - disponivel)
+  mem_avail_mib      memoria disponivel
+  swap_used_mib      swap em uso
+  psi_cpu_pct        % do intervalo com alguma tarefa esperando CPU (PSI)
+  psi_mem_pct        idem, esperando memoria
+  psi_io_pct         idem, esperando I/O
+  proc_cpu_pct       CPU dos PIDs de -f, em % de um nucleo (vazio sem alvo)
+  proc_threads       threads do alvo
+  proc_running       threads do alvo rodando (estado R)
+  proc_dstate        threads do alvo em D (I/O ou kernel, nao interrompiveis)
+  proc_majflt_s      page faults maiores por segundo (paginas vindas do disco)
+
+Colunas de <saida>-threads.csv:
+  timestamp          o mesmo da linha de <saida>-sys.csv
+  pid, tid           processo e thread
+  thread_name        nome da thread (virgulas viram _)
+  state              R rodando, S dormindo, D nao interrompivel...
+  cpu_pct            CPU da thread no intervalo, em % de um nucleo
+  wchan              funcao do kernel onde a thread dorme: futex_* (lock entre
+                     threads), poll/select (socket: X11, audio, rede), funcoes
+                     do driver de video (esperando a GPU); 0 quando rodando
+
 Uma metrica que o hardware nao reporta vira celula vazia, nunca zero: zero e um
 valor medido, vazio e a ausencia de medida.
 
@@ -113,4 +154,6 @@ a coleta ainda esta rodando.
 Ambiente:
   MONITOR_LANG         Forca o idioma (ex.: en, pt), ignorando o locale
   MONITOR_LOG_DIR      Onde os CSVs vao (padrao: \$HOME/.monitor/log)
+  MONITOR_THREADS_MIN_PCT  CPU minima para uma thread entrar no CSV (padrao: 1)
+  MONITOR_THREADS_HOLD_S   Segundos que ela fica depois de parar (padrao: 10)
 EOF

@@ -546,7 +546,7 @@ if runs "i18n: ajuda acompanha o idioma"; then
          MONITOR_LANG=en "$MONITOR" --help 2>&1 | head -1)
   o_pt=$(env PATH="$MOCK_DIR/bin:$PATH" MONITOR_LOG_DIR="$TMP/logs" \
          MONITOR_LANG=pt "$MONITOR" --help 2>&1 | head -1)
-  if [[ "$o_en" == *"process and disk monitor"* && "$o_pt" == *"processos e disco"* ]]; then
+  if [[ "$o_en" == *"disk and system monitor"* && "$o_pt" == *"disco e sistema"* ]]; then
     ok "i18n: ajuda acompanha o idioma"
   else
     no "i18n: ajuda acompanha o idioma" "cabecalho nao mudou" "en: $o_en
@@ -599,6 +599,85 @@ if runs "output sem .csv: sufixos corretos"; then
   else
     no "output sem .csv: sufixos corretos" "arquivos esperados nao existem"
   fi
+fi
+
+# ===========================================================================
+group "sistema e threads"
+# ===========================================================================
+
+# Um /proc falso com contadores fixos. O uptime e um link para o real: o laco
+# do coletor cadencia e encerra pelo relogio, e com um uptime parado ele nunca
+# terminaria a duracao. Com os contadores parados, so a
+# thread em D-state entra no CSV de threads - que e o que se quer conferir.
+# Sem nenhum tick decorrido, o uso de CPU nao foi medido: celula vazia.
+fakeproc="$TMP/proc"
+mkdir -p "$fakeproc/pressure" "$fakeproc/4242/task/4242" "$fakeproc/4242/task/4243" \
+         "$fakeproc/4242/task/4244"
+ln -s /proc/uptime "$fakeproc/uptime"
+printf 'cpu  100 0 50 800 10 0 0 0 0 0\ncpu0 50 0 25 400 5 0 0 0 0 0\ncpu1 50 0 25 400 5 0 0 0 0 0\n' \
+  > "$fakeproc/stat"
+printf 'MemTotal:       16384000 kB\nMemFree:         1000000 kB\nMemAvailable:    8192000 kB\nSwapTotal:       2048000 kB\nSwapFree:        1024000 kB\n' \
+  > "$fakeproc/meminfo"
+for r in cpu memory io; do
+  printf 'some avg10=0.00 avg60=0.00 avg300=0.00 total=1000\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n' \
+    > "$fakeproc/pressure/$r"
+done
+# O stat de processo: comm entre parenteses, depois estado e o resto. O comm
+# com espaco e ")" e o caso que um split ingenuo por espaco quebraria.
+pstat() { printf '%s (%s) %s 1 1 1 0 -1 0 0 0 %s 0 %s %s 0 0 20 0 3 0\n' "$1" "$2" "$3" "$4" "$5" "$6"; }
+pstat 4242 dota S 7 500 100 > "$fakeproc/4242/stat"
+pstat 4242 dota S 0 300 50  > "$fakeproc/4242/task/4242/stat"
+pstat 4243 'Render (main) 1' D 0 200 50 > "$fakeproc/4242/task/4243/stat"
+pstat 4244 idle S 0 0 0 > "$fakeproc/4242/task/4244/stat"
+echo poll_schedule_timeout > "$fakeproc/4242/task/4242/wchan"
+echo nv_wait_for_gpu > "$fakeproc/4242/task/4243/wchan"
+echo futex_do_wait > "$fakeproc/4242/task/4244/wchan"
+
+run_sys() { MONITOR_PROC_ROOT="$fakeproc" run_monitor sys "$@"; }
+
+scsv="$TMP/sy-sys.csv"; tcsv="$TMP/sy-threads.csv"
+out=$(run_sys -f pid:4242 -d 1.2 -q -o "$TMP/sy.csv")
+eq "sys: 16 colunas"           "$(sed -n 2p "$scsv" | awk -F, '{print NF}')" "16" "$out"
+eq "sys: timestamp com ms"     "$(field "$scsv" 1 | grep -cE 'T[0-9:]{8}\.[0-9]{3}$')" "1" "$out"
+eq "sys: cpu sem ticks = vazio" "$(field "$scsv" 2)" "" "$out"
+eq "sys: memoria usada"        "$(field "$scsv" 6)" "8000" "$out"
+eq "sys: memoria disponivel"   "$(field "$scsv" 7)" "8000" "$out"
+eq "sys: swap usada"           "$(field "$scsv" 8)" "1000" "$out"
+eq "sys: psi parado = 0"       "$(field "$scsv" 9)" "0.0" "$out"
+eq "sys: threads do alvo"      "$(field "$scsv" 13)" "3" "$out"
+eq "sys: threads em D"         "$(field "$scsv" 15)" "1" "$out"
+eq "threads: 7 colunas"        "$(sed -n 2p "$tcsv" | awk -F, '{print NF}')" "7" "$out"
+eq "threads: comm com parenteses" "$(field "$tcsv" 4)" "Render (main) 1" "$out"
+eq "threads: estado apos o comm"  "$(field "$tcsv" 5)" "D" "$out"
+eq "threads: wchan"            "$(field "$tcsv" 7)" "nv_wait_for_gpu" "$out"
+eq "threads: ociosa fica fora" "$(grep -c ',idle,' "$tcsv")" "0" "$out"
+
+if runs "sys: sem pid nao cria threads"; then
+  run_sys -d 1 -q -o "$TMP/sn.csv" >/dev/null 2>&1
+  if [[ -s "$TMP/sn-sys.csv" && ! -e "$TMP/sn-threads.csv" ]]; then ok "sys: sem pid nao cria threads"
+  else no "sys: sem pid nao cria threads" "esperava sn-sys.csv e nenhum sn-threads.csv"; fi
+fi
+
+if runs "sys: PID que sumiu deixa celula vazia"; then
+  run_sys -f pid:999999 -d 1 -q -o "$TMP/sg.csv" >/dev/null 2>&1
+  eq "sys: PID que sumiu deixa celula vazia" "$(field "$TMP/sg-sys.csv" 13)" ""
+fi
+
+out=$(run_monitor -S xyz 2>&1)
+contains "sys: modo invalido" "$out" "invalid mode for --sys"
+
+out=$(run_monitor sys -S off 2>&1)
+contains "sys: subcomando desligado" "$out" "nothing to collect"
+
+if runs "sys: filtro aceito sem procs"; then
+  out=$(run_sys -f pid:4242 -d 1 -q -o "$TMP/sf.csv" 2>&1)
+  if [[ "$out" != *"only makes sense"* && -s "$TMP/sf-threads.csv" ]]; then ok "sys: filtro aceito sem procs"
+  else no "sys: filtro aceito sem procs" "o filtro foi recusado ou nao gerou threads" "$out"; fi
+fi
+
+if runs "sys: resumo mostra a thread"; then
+  out=$(run_sys -f pid:4242 -d 1.2 -o "$TMP/sr.csv" 2>&1)
+  contains "sys: resumo mostra a thread" "$out" "Render (main) 1"
 fi
 
 # ===========================================================================

@@ -3,7 +3,7 @@
 [English](README.md) · [Português](README.pt-BR.md)
 
 ```bash
-./tests/run-tests.sh              # 106 testes, cerca de um minuto
+./tests/run-tests.sh              # 126 testes, cerca de um minuto
 ./tests/run-tests.sh -v           # mostra a saída de cada falha
 ./tests/run-tests.sh amd          # só os testes cujo nome contém "amd"
 ```
@@ -90,6 +90,11 @@ o código certo quanto com o errado, ele não está medindo nada.
   contam PIDs distintos, não linhas por timestamp.
 - O teste de disco lê o `/proc/diskstats` **real** (é só leitura, sem efeito
   colateral). Numa máquina sem ele, esse grupo é pulado.
+- O teste de sistema usa um `/proc` falso (`MONITOR_PROC_ROOT`) com contadores
+  parados, então as taxas de CPU e PSI saem como "não medido" e só a thread em
+  `D` entra no CSV de threads. As taxas e a retenção de 10 s foram conferidas à
+  mão contra processos reais. O `uptime` falso é um link para o real, porque o
+  laço do coletor é cadenciado e encerrado por esse relógio.
 - O backend Intel é validado contra sysfs simulado, o que exercita a lógica de
   leitura e conversão — **não** que os caminhos existam num i915 de verdade.
   Isso só um teste em hardware resolve.

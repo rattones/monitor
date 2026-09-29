@@ -3,7 +3,7 @@
 [English](README.md) · [Português](README.pt-BR.md)
 
 ```bash
-./tests/run-tests.sh              # 106 tests, about a minute
+./tests/run-tests.sh              # 126 tests, about a minute
 ./tests/run-tests.sh -v           # show the output of each failure
 ./tests/run-tests.sh amd          # only tests whose name contains "amd"
 ```
@@ -92,6 +92,11 @@ the correct and the broken code, it is measuring nothing.
   not lines per timestamp.
 - The disk test reads the **real** `/proc/diskstats` (read-only, no side
   effects). On a machine without it, that group is skipped.
+- The system test uses a fake `/proc` (`MONITOR_PROC_ROOT`) with frozen
+  counters, so CPU and PSI rates come out as "not measured" and only the
+  `D`-state thread enters the threads CSV. Rates and the 10 s retention were
+  checked by hand against real processes. The fake `uptime` is a link to the
+  real one, because the collector's loop is paced and ended by that clock.
 - The Intel backend is validated against a simulated sysfs, which exercises the
   reading and conversion logic — **not** that those paths exist on a real i915.
   Only a test on hardware settles that.
