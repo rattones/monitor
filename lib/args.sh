@@ -12,6 +12,7 @@ PROCS_MODE="all"  # all | compute | off
 TOP_N=5           # quantos processos no resumo final
 DISK_MODE="all"   # all | off | lista de dispositivos
 SYS_MODE="all"    # all | off
+PERF_ON=0         # -P: perf record nos PIDs de -f
 GPU_BACKEND=""    # vazio = autodeteccao
 
 WANT_GPU=0; WANT_DISK=0; WANT_PROC=0; WANT_SYS=0
@@ -41,6 +42,7 @@ parse_args() {
       -p|--procs)    eval "$need"; PROCS_MODE="$2"; shift 2 ;;
       -D|--disk)     eval "$need"; DISK_MODE="$2";  shift 2 ;;
       -S|--sys)      eval "$need"; SYS_MODE="$2";   shift 2 ;;
+      -P|--perf)     PERF_ON=1; shift ;;
       -f|--filter)   eval "$need"; add_filter "$2"; shift 2 ;;
       -t|--top)      eval "$need"; TOP_N="$2";    shift 2 ;;
       -b|--backend)  eval "$need"; GPU_BACKEND="$2"; shift 2 ;;
@@ -100,7 +102,7 @@ validate_args() {
 
   # O filtro serve a dois coletores: o de processos filtra a VRAM, o de sistema
   # segue as threads dos PIDs. Sem nenhum dos dois, ele nao teria efeito.
-  if [[ -n "$FILTER_RAW" ]] && (( ! WANT_PROC && ! WANT_SYS )); then
+  if [[ -n "$FILTER_RAW" ]] && (( ! WANT_PROC && ! WANT_SYS && ! PERF_ON )); then
     die "$(msg args_filter_needs_procs)"
   fi
 

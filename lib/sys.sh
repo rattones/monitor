@@ -119,7 +119,7 @@ start_sys() {
   # pode conter espacos e ")", entao corta-se no ULTIMO ")": dividir a linha
   # inteira por espaco deslocaria todos os campos de uma thread chamada
   # "CNet Encrypt:0". Depois do corte, r[1] e o estado, r[10] o majflt,
-  # r[12]/r[13] o utime/stime.
+  # r[12]/r[13] o utime/stime, r[37] o ultimo nucleo em que a thread rodou.
   function readstat(path, r,   line, p, q, n, i, f2) {
     delete r
     if ((getline line < path) <= 0) { close(path); return 0 }
@@ -138,6 +138,17 @@ start_sys() {
     v = ""
     if ((getline v < path) <= 0) v = ""
     close(path)
+    return v
+  }
+
+  # Nucleos em que a thread PODE rodar ("0-15", "0,2,4"). A virgula vira espaco
+  # para caber numa celula; vazio se o status nao for legivel.
+  function affinity(path,   line, v) {
+    v = ""
+    while ((getline line < path) > 0)
+      if (line ~ /^Cpus_allowed_list:/) { v = line; sub(/^Cpus_allowed_list:[ \t]*/, "", v) }
+    close(path)
+    gsub(/,/, " ", v)
     return v
   }
 
@@ -225,22 +236,30 @@ start_sys() {
             if (st == "R") nrun++
             if (st == "D") nd++
 
+            # O total decide se a thread entra; a divisao usuario/kernel diz,
+            # numa thread girando a 100%, se o giro e no codigo do programa
+            # (espera ativa, laco) ou dentro de uma chamada ao kernel.
             ticks = ts_[12] + ts_[13]
-            tpct = (key in tprev && dt > 0) ? (ticks - tprev[key]) * 100 / tck / dt : 0
+            have = (key in tprev && dt > 0)
+            tpct = have ? (ticks - tprev[key]) * 100 / tck / dt : 0
+            upct = have ? (ts_[12] - uprev[key]) * 100 / tck / dt : 0
             if (tpct < 0) tpct = 0
-            tprev[key] = ticks
+            if (upct < 0) upct = 0
+            if (upct > tpct) upct = tpct
+            tprev[key] = ticks; uprev[key] = ts_[12]
             if (tpct >= tmin) last_active[key] = t
 
             if (!first && ((key in last_active && t - last_active[key] <= hold) || st == "D")) {
-              printf("%s,%s,%s,%s,%s,%.1f,%s\n", ts, pid[j], tid, clean(ts_["comm"]),
-                     st, tpct, clean(readline1(tp "/wchan"))) >> tout
+              printf("%s,%s,%s,%s,%s,%.1f,%s,%.1f,%.1f,%s,%s\n", ts, pid[j], tid,
+                     clean(ts_["comm"]), st, tpct, clean(readline1(tp "/wchan")),
+                     upct, tpct - upct, ts_[37], affinity(tp "/status")) >> tout
             }
           }
           close(cmd)
         }
         # Thread que morreu nao volta: sem limpar, os mapas cresceriam a cada
         # thread efemera criada pelo jogo.
-        for (key in tprev) if (!(key in seen)) { delete tprev[key]; delete last_active[key] }
+        for (key in tprev) if (!(key in seen)) { delete tprev[key]; delete uprev[key]; delete last_active[key] }
 
         if (alive) {
           pcpu = (have_prev && dt > 0) ? sprintf("%.1f", (tot_ticks - pticks) * 100 / tck / dt) : ""

@@ -46,6 +46,8 @@ stop() {
 
   [[ -n "$DISK_PID" ]] && kill "$DISK_PID" 2>/dev/null
   [[ -n "$SYS_PID" ]]  && kill "$SYS_PID" 2>/dev/null
+  # INT: o sinal com que o perf fecha o perf.data direito.
+  [[ -n "$PERF_PID" ]] && kill -INT "$PERF_PID" 2>/dev/null
   return 0
 }
 
@@ -54,6 +56,7 @@ cleanup() {
   for p in "$GPU_SRC_PID" "$PROC_SRC_PID" "$GPU_AWK_PID" "$PROC_AWK_PID" "$DISK_PID" "$SYS_PID"; do
     [[ -n "$p" ]] && kill "$p" 2>/dev/null
   done
+  [[ -n "$PERF_PID" ]] && kill -INT "$PERF_PID" 2>/dev/null
   local f
   for f in "${FIFOS[@]}"; do
     [[ -n "$f" ]] && rm -f "$f"

@@ -85,6 +85,7 @@ nenhuma: leem apenas `/proc` e `/sys`, então rodam numa máquina sem
 | `-f, --filter ALVO` | Monitora só estes processos — PID ou nome, separados por vírgula, opção repetível |
 | `-D, --disk MODO` | `all` (padrão) = todos os discos físicos; `off` = não coleta; ou uma lista (`nvme0n1`, `sda,sdb`) |
 | `-S, --sys MODO` | `all` (padrão) = CPU, memória, PSI e threads do alvo; `off` = não coleta |
+| `-P, --perf` | Amostra as pilhas dos alvos de `-f pid:N` com `perf record` (ver abaixo) |
 | `-t, --top N` | Quantos processos/threads no resumo final (padrão `5`; `0` desliga) |
 | `-q, --quiet` | Só grava os CSVs, sem imprimir na tela |
 | `-h, --help` | Ajuda |
@@ -255,6 +256,8 @@ sem uma pergunta clara por trás.
 | `state` | `R` rodando, `S` dormindo, `D` não interrompível… |
 | `cpu_pct` | CPU da thread no intervalo, em % de um núcleo |
 | `wchan` | a função do kernel em que a thread está dormindo |
+| `user_pct` / `sys_pct` | `cpu_pct` dividido entre o código do próprio programa e o kernel |
+| `last_cpu` / `affinity` | o último núcleo em que rodou e os núcleos em que pode rodar (`0-15`; vírgulas viram espaço) |
 
 Uma thread entra no arquivo quando gasta 1% de um núcleo e **fica por mais 10
 segundos depois de parar**. A retenção é o ponto: numa parada, a thread de
@@ -269,6 +272,31 @@ função do driver de vídeo é espera pela GPU; `0` é rodando.
 Por que `wchan` e não a pilha: `/proc/<pid>/task/<tid>/stack` e `syscall`
 exigem ptrace, que o Yama (`ptrace_scope=1`, padrão no Ubuntu) nega para
 processos que não são filhos do monitor. O `wchan` só exige leitura.
+
+### `-P`: onde uma thread gira
+
+O CSV de threads diz *qual* thread girou e em que estado; o `perf` diz *onde*:
+em qual biblioteca e função. Numa thread a 100% com a GPU parada, é isso que
+separa "o programa preso num laço" de "o driver de vídeo esperando ativamente
+por algo".
+
+```bash
+sudo sysctl kernel.perf_event_paranoid=1     # sem root; vale até o reboot
+monitor all -f pid:4242 -P -o run.csv
+tools/perf-window.sh run 14:10:24 14:10:26 GlobPool
+```
+
+Grava `<saída>-perf.data` (amostras comprimidas, 49 Hz por padrão —
+`MONITOR_PERF_FREQ`), `<saída>-perf.clock` (um par relógio real/monotônico lido
+no início, para pôr o tempo do perf no relógio dos CSVs) e `<saída>-perf.log`.
+O `tools/perf-window.sh` recebe uma janela no horário que os CSVs mostram e
+imprime as amostras por thread, pela biblioteca onde caíram e pelo primeiro
+quadro fora do kernel — os quadros do kernel aparecem sem símbolos enquanto o
+`kptr_restrict` está ligado, que é o padrão.
+
+O `-P` exige o `perf` instalado (`linux-tools-$(uname -r)` no Ubuntu) e um alvo
+por PID; alvo por nome não basta. O `install.sh` não instala o `tools/`: rode o
+`perf-window.sh` a partir do repositório.
 
 ### Métrica não reportada fica vazia, nunca zero
 
@@ -312,6 +340,7 @@ lib/
 ├── filter.sh           alvos de --filter
 ├── disk.sh             coleta de disco (não depende de GPU)
 ├── sys.sh              coleta de CPU, memória, PSI e threads (não depende de GPU)
+├── perf.sh             -P: perf record nos PIDs-alvo
 ├── report.sh           banner, resumos, rodapé
 ├── i18n.sh             detecção de idioma e catálogo
 ├── i18n/               mensagens e ajuda por idioma
@@ -319,6 +348,7 @@ lib/
     ├── nvidia.sh       via nvidia-smi — implementado
     ├── amd.sh          via sysfs amdgpu — implementado (sem VRAM/processo)
     └── intel.sh        via sysfs i915/xe — não testado em hardware
+tools/perf-window.sh    onde as threads gastaram CPU numa janela de horário
 tests/                  suíte de testes e mocks
 ```
 
@@ -330,7 +360,7 @@ que falta, em vez de falhar no meio de uma coleta.
 ## Testes
 
 ```bash
-./tests/run-tests.sh          # 126 testes, cerca de um minuto
+./tests/run-tests.sh          # 129 testes, cerca de um minuto
 ./tests/run-tests.sh -v amd   # filtra e mostra a saída das falhas
 ```
 

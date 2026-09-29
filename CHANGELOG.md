@@ -6,6 +6,32 @@ All notable changes to this project. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the version is the
 one printed by `monitor --version`.
 
+## [3.4] — 2026-09-29
+
+### Added
+
+- **`-P, --perf`** (`lib/perf.sh`): runs `perf record` on the `-f pid:N`
+  targets alongside the collectors, to show *where* a spinning thread spends
+  its CPU — which library and function — not just *which* thread it is.
+  - `<output>-perf.data`: compressed call-graph samples, 49 Hz by default
+    (`MONITOR_PERF_FREQ`), on `CLOCK_MONOTONIC`.
+  - `<output>-perf.clock`: a wall-clock/monotonic pair read at start, to map
+    perf time onto the CSVs' timestamps; `<output>-perf.log`: perf's output.
+  - Refused up front, with the fix, when there is no PID target, `perf` is
+    missing, or `perf_event_paranoid` blocks regular users.
+- `tools/perf-window.sh`: takes a time window as the CSVs show it and prints
+  the samples by thread, by library, and by the first frame outside the kernel.
+- `<output>-threads.csv` gains four columns: `user_pct` and `sys_pct`
+  (`cpu_pct` split between the program's code and the kernel), `last_cpu` and
+  `affinity`.
+- 3 new tests (129 in total).
+
+### Changed
+
+- **Breaking for CSV readers:** `<output>-threads.csv` now has 11 columns
+  instead of 7; the new ones are appended at the end.
+- `-f/--filter` is also accepted when only `-P` would use it.
+
 ## [3.3] — 2026-09-29
 
 ### Added

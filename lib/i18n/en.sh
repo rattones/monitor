@@ -52,6 +52,11 @@ MSG[disk_none_selected]='no disk selected in --disk'
 MSG[sys_bad_env]='invalid value in %s: %s (expected a number)'
 MSG[sys_no_proc]='cannot read %s/stat - is /proc mounted? (use --sys off)'
 
+# --- perf ------------------------------------------------------------------
+MSG[perf_needs_pid]='--perf needs a target PID: use -f pid:N'
+MSG[perf_not_found]='perf not found (on Ubuntu: sudo apt install linux-tools-common linux-tools-$(uname -r))'
+MSG[perf_paranoid]='perf is blocked for regular users (perf_event_paranoid=%s); run: sudo sysctl kernel.perf_event_paranoid=1'
+
 # --- backend ---------------------------------------------------------------
 MSG[backend_unknown]='unknown backend: %s (looked in %s)'
 MSG[backend_load_failed]='could not load the %s backend'
@@ -90,6 +95,7 @@ MSG[report_filter_suffix]=', filter: %s'
 MSG[report_disk_to]='disk in: %s (%s)\n'
 MSG[report_sys_to]='system in: %s\n'
 MSG[report_threads_to]='threads in: %s (PID %s)\n'
+MSG[report_perf_to]='perf in: %s (%s Hz)\n'
 MSG[report_interval]='interval: %sms | duration: %s | Ctrl+C to stop\n\n'
 MSG[report_unlimited]='unlimited'
 MSG[report_csv]='CSV: %s\n'
@@ -97,6 +103,7 @@ MSG[report_csv_procs]='CSV processes: %s\n'
 MSG[report_csv_disk]='CSV disk: %s\n'
 MSG[report_csv_sys]='system CSV: %s\n'
 MSG[report_csv_threads]='threads CSV: %s\n'
+MSG[report_csv_perf]='perf: %s\n'
 MSG[report_samples]='\n%d samples written.\n'
 
 # --- strings passed into awk (see the -v flags in report.sh / nvidia.sh) ----

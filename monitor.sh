@@ -18,7 +18,7 @@
 
 set -uo pipefail
 
-VERSION="3.3"
+VERSION="3.4"
 
 # readlink -f resolve a cadeia de symlinks ate o arquivo real: instalado, o
 # comando em /usr/local/bin e um link, e sem isto o lib/ seria procurado ao
@@ -31,7 +31,7 @@ LIB_DIR="${MONITOR_LIB_DIR:-$SCRIPT_DIR/lib}"
 # A ordem importa: i18n.sh vem primeiro porque o die() de core.sh usa msg();
 # core.sh define esse die(), que todos os outros usam; e backend.sh define o
 # backend_call() de que filter.sh e report.sh dependem.
-for _m in i18n core backend csv filter args disk sys report; do
+for _m in i18n core backend csv filter args disk sys perf report; do
   # shellcheck source=/dev/null
   . "$LIB_DIR/$_m.sh" || { printf 'error: could not load lib/%s.sh\n' "$_m" >&2; exit 1; }
 done
@@ -69,6 +69,7 @@ main() {
   (( WANT_GPU || WANT_PROC )) && setup_backend
   (( WANT_DISK )) && resolve_disks
   (( WANT_SYS ))  && resolve_sys
+  (( PERF_ON ))   && resolve_perf
 
   setup_outputs
 
@@ -81,6 +82,7 @@ main() {
   (( WANT_PROC )) && backend_call start_proc
   (( WANT_DISK )) && start_disk
   (( WANT_SYS ))  && start_sys
+  (( PERF_ON ))   && start_perf
 
   # Os awks rodam em background e o shell espera: assim um sinal e tratado na
   # hora, em vez de ficar pendurado ate um pipeline em foreground terminar.
@@ -88,6 +90,7 @@ main() {
   wait_for "$PROC_AWK_PID"; PROC_AWK_PID=""
   wait_for "$DISK_PID";     DISK_PID=""
   wait_for "$SYS_PID";      SYS_PID=""
+  wait_for "$PERF_PID";     PERF_PID=""
 
   [[ -n "$GPU_SRC_PID"  ]] && { wait "$GPU_SRC_PID"  2>/dev/null; GPU_SRC_PID=""; }
   [[ -n "$PROC_SRC_PID" ]] && { wait "$PROC_SRC_PID" 2>/dev/null; PROC_SRC_PID=""; }

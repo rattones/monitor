@@ -6,6 +6,33 @@ Todas as mudanças relevantes do projeto. O formato segue o
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/), e a versão é a que
 `monitor --version` imprime.
 
+## [3.4] — 2026-09-29
+
+### Adicionado
+
+- **`-P, --perf`** (`lib/perf.sh`): roda o `perf record` nos alvos de
+  `-f pid:N` junto com os coletores, para mostrar *onde* uma thread que gira
+  gasta CPU — em qual biblioteca e função —, e não só *qual* thread é.
+  - `<saida>-perf.data`: amostras com pilha, comprimidas, 49 Hz por padrão
+    (`MONITOR_PERF_FREQ`), no `CLOCK_MONOTONIC`.
+  - `<saida>-perf.clock`: um par relógio real/monotônico lido no início, para
+    levar o tempo do perf ao horário dos CSVs; `<saida>-perf.log`: a saída do
+    perf.
+  - Recusado logo no início, dizendo como resolver, quando não há alvo por PID,
+    falta o `perf` ou o `perf_event_paranoid` bloqueia usuários comuns.
+- `tools/perf-window.sh`: recebe uma janela no horário dos CSVs e imprime as
+  amostras por thread, por biblioteca e pelo primeiro quadro fora do kernel.
+- `<saida>-threads.csv` ganha quatro colunas: `user_pct` e `sys_pct` (o
+  `cpu_pct` dividido entre o código do programa e o kernel), `last_cpu` e
+  `affinity`.
+- 3 testes novos (129 no total).
+
+### Alterado
+
+- **Incompatível para quem lê o CSV:** `<saida>-threads.csv` passa de 7 para 11
+  colunas; as novas vêm no fim.
+- `-f/--filter` é aceito também quando só o `-P` o usaria.
+
 ## [3.3] — 2026-09-29
 
 ### Adicionado

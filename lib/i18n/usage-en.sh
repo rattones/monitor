@@ -70,6 +70,9 @@ System options (subcommands all, sys):
                        A thread enters the CSV once it uses 1% of a core and
                        stays for 10 s after it stops: that is when its wchan
                        shows what stalled it.
+  -P, --perf           Sample the stacks of the -f pid:N PIDs with perf record,
+                       to see which library and function a thread spins in.
+                       Without root, needs kernel.perf_event_paranoid <= 1.
 
 Outputs (only the files of the active collectors are created):
   <output>.csv         one line per GPU per sample (usage, VRAM, temperature...)
@@ -77,6 +80,8 @@ Outputs (only the files of the active collectors are created):
   <output>-disk.csv    one line per disk per sample (read/write and temperature)
   <output>-sys.csv     one line per sample (CPU, memory, PSI and the target in aggregate)
   <output>-threads.csv one line per active target thread per sample (only with -f pid:N)
+  <output>-perf.data   perf samples (only with -P); <output>-perf.clock converts
+                       their time to the CSVs' - see tools/perf-window.sh
 
 Columns of <output>.csv:
   timestamp          local ISO-8601, with milliseconds
@@ -140,6 +145,11 @@ Columns of <output>-threads.csv:
                      between threads), poll/select (socket: X11, audio,
                      network), video driver functions (waiting for the GPU);
                      0 while running
+  user_pct, sys_pct  cpu_pct split between the program's code and the kernel:
+                     a thread at 100% user_pct spins in its own code
+  last_cpu           the last core the thread ran on
+  affinity           cores it is allowed to run on (e.g. 0-15; commas become
+                     spaces)
 
 A metric the hardware does not report becomes an empty cell, never zero: zero is
 a measured value, empty is the absence of a measurement.
@@ -158,4 +168,5 @@ Environment:
   MONITOR_LOG_DIR      Where the CSVs go (default: \$HOME/.monitor/log)
   MONITOR_THREADS_MIN_PCT  Minimum CPU for a thread to enter the CSV (default: 1)
   MONITOR_THREADS_HOLD_S   Seconds it stays after going idle (default: 10)
+  MONITOR_PERF_FREQ        Samples per second for -P (default: 49)
 EOF

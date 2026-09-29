@@ -154,6 +154,7 @@ print_banner() {
     msg report_sys_to "$SYS_OUT"
     [[ -n "$SYS_PIDS" ]] && msg report_threads_to "$THREADS_OUT" "${SYS_PIDS//;/, }"
   fi
+  (( PERF_ON )) && msg report_perf_to "$PERF_OUT" "$PERF_FREQ"
   msg report_interval \
     "$INTERVAL_MS" "$( [[ "$DURATION" == 0 ]] && msg report_unlimited || printf '%ss' "$DURATION" )"
   return 0
@@ -167,5 +168,6 @@ print_footer() {
   (( WANT_DISK )) && msg report_csv_disk "$DISK_OUT"
   (( WANT_SYS ))  && msg report_csv_sys "$SYS_OUT"
   (( WANT_SYS )) && [[ -n "$SYS_PIDS" ]] && msg report_csv_threads "$THREADS_OUT"
+  (( PERF_ON )) && msg report_csv_perf "$PERF_OUT"
   return 0
 }

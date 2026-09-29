@@ -51,6 +51,11 @@ MSG[disk_none_selected]='nenhum disco selecionado em --disk'
 MSG[sys_bad_env]='valor invalido em %s: %s (esperava um numero)'
 MSG[sys_no_proc]='nao consegui ler %s/stat - o /proc esta montado? (use --sys off)'
 
+# --- perf ------------------------------------------------------------------
+MSG[perf_needs_pid]='--perf precisa de um PID-alvo: use -f pid:N'
+MSG[perf_not_found]='perf nao encontrado (no Ubuntu: sudo apt install linux-tools-common linux-tools-$(uname -r))'
+MSG[perf_paranoid]='o perf esta bloqueado para usuarios comuns (perf_event_paranoid=%s); rode: sudo sysctl kernel.perf_event_paranoid=1'
+
 # --- backend ---------------------------------------------------------------
 MSG[backend_unknown]='backend desconhecido: %s (procurei em %s)'
 MSG[backend_load_failed]='nao consegui carregar o backend %s'
@@ -89,6 +94,7 @@ MSG[report_filter_suffix]=', filtro: %s'
 MSG[report_disk_to]='disco em: %s (%s)\n'
 MSG[report_sys_to]='sistema em: %s\n'
 MSG[report_threads_to]='threads em: %s (PID %s)\n'
+MSG[report_perf_to]='perf em: %s (%s Hz)\n'
 MSG[report_interval]='intervalo: %sms | duracao: %s | Ctrl+C para parar\n\n'
 MSG[report_unlimited]='ilimitada'
 MSG[report_csv]='CSV: %s\n'
@@ -96,6 +102,7 @@ MSG[report_csv_procs]='CSV processos: %s\n'
 MSG[report_csv_disk]='CSV disco: %s\n'
 MSG[report_csv_sys]='CSV sistema: %s\n'
 MSG[report_csv_threads]='CSV threads: %s\n'
+MSG[report_csv_perf]='perf: %s\n'
 MSG[report_samples]='\n%d amostras gravadas.\n'
 
 # --- strings passadas ao awk -----------------------------------------------

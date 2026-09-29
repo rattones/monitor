@@ -70,6 +70,9 @@ Opcoes de sistema (subcomandos all, sys):
                        Uma thread entra no CSV quando gasta 1% de um nucleo e
                        fica por mais 10 s depois de parar: e nesse momento que o
                        wchan dela mostra o que a travou.
+  -P, --perf           Amostra as pilhas dos PIDs de -f pid:N com perf record,
+                       para ver em qual biblioteca e funcao uma thread gira.
+                       Sem root, exige kernel.perf_event_paranoid <= 1.
 
 Saidas (so os arquivos dos coletores ativos sao criados):
   <saida>.csv          uma linha por GPU por amostra (uso, VRAM, temperatura...)
@@ -77,6 +80,8 @@ Saidas (so os arquivos dos coletores ativos sao criados):
   <saida>-disk.csv     uma linha por disco por amostra (leitura/escrita e temperatura)
   <saida>-sys.csv      uma linha por amostra (CPU, memoria, PSI e o alvo agregado)
   <saida>-threads.csv  uma linha por thread ativa do alvo por amostra (so com -f pid:N)
+  <saida>-perf.data    amostras do perf (so com -P); <saida>-perf.clock converte
+                       o tempo delas para o dos CSVs - ver tools/perf-window.sh
 
 Colunas de <saida>.csv:
   timestamp          ISO-8601 local, com milissegundos
@@ -139,6 +144,11 @@ Colunas de <saida>-threads.csv:
   wchan              funcao do kernel onde a thread dorme: futex_* (lock entre
                      threads), poll/select (socket: X11, audio, rede), funcoes
                      do driver de video (esperando a GPU); 0 quando rodando
+  user_pct, sys_pct  cpu_pct dividido entre o codigo do programa e o kernel:
+                     uma thread a 100% em user_pct gira no proprio codigo
+  last_cpu           ultimo nucleo em que a thread rodou
+  affinity           nucleos em que ela pode rodar (ex.: 0-15; virgulas viram
+                     espaco)
 
 Uma metrica que o hardware nao reporta vira celula vazia, nunca zero: zero e um
 valor medido, vazio e a ausencia de medida.
@@ -156,4 +166,5 @@ Ambiente:
   MONITOR_LOG_DIR      Onde os CSVs vao (padrao: \$HOME/.monitor/log)
   MONITOR_THREADS_MIN_PCT  CPU minima para uma thread entrar no CSV (padrao: 1)
   MONITOR_THREADS_HOLD_S   Segundos que ela fica depois de parar (padrao: 10)
+  MONITOR_PERF_FREQ        Amostras por segundo do -P (padrao: 49)
 EOF

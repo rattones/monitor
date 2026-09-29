@@ -17,7 +17,7 @@ GPU_CSV_HEADER="timestamp,gpu_index,gpu_name,gpu_util_pct,mem_util_pct,vram_tota
 PROCS_CSV_HEADER="timestamp,gpu_index,pid,type,process_name,used_vram_mib"
 DISK_CSV_HEADER="timestamp,device,read_mb_s,write_mb_s,read_iops,write_iops,util_pct,temp_c"
 SYS_CSV_HEADER="timestamp,cpu_util_pct,cpu_iowait_pct,cpu_max_core_pct,cpu_max_core,mem_used_mib,mem_avail_mib,swap_used_mib,psi_cpu_pct,psi_mem_pct,psi_io_pct,proc_cpu_pct,proc_threads,proc_running,proc_dstate,proc_majflt_s"
-THREADS_CSV_HEADER="timestamp,pid,tid,thread_name,state,cpu_pct,wchan"
+THREADS_CSV_HEADER="timestamp,pid,tid,thread_name,state,cpu_pct,wchan,user_pct,sys_pct,last_cpu,affinity"
 
 # So escreve cabecalho em arquivo novo/vazio, para permitir append entre sessoes.
 init_csv() {
@@ -39,6 +39,9 @@ setup_outputs() {
   DISK_OUT="${OUTPUT%.csv}-disk.csv"
   SYS_OUT="${OUTPUT%.csv}-sys.csv"
   THREADS_OUT="${OUTPUT%.csv}-threads.csv"
+  PERF_OUT="${OUTPUT%.csv}-perf.data"
+  PERF_CLOCK="${OUTPUT%.csv}-perf.clock"
+  PERF_LOG="${OUTPUT%.csv}-perf.log"
 
   (( WANT_GPU )) && init_csv "$OUTPUT" "$GPU_CSV_HEADER"
   if (( WANT_PROC )); then

@@ -624,7 +624,11 @@ for r in cpu memory io; do
 done
 # O stat de processo: comm entre parenteses, depois estado e o resto. O comm
 # com espaco e ")" e o caso que um split ingenuo por espaco quebraria.
-pstat() { printf '%s (%s) %s 1 1 1 0 -1 0 0 0 %s 0 %s %s 0 0 20 0 3 0\n' "$1" "$2" "$3" "$4" "$5" "$6"; }
+# Os campos vao ate o 39 (processor, o ultimo nucleo), que e 3 no mock.
+pstat() {
+  printf '%s (%s) %s 1 1 1 0 -1 0 0 0 %s 0 %s %s 0 0 20 0 3 0 %s 3 0\n' \
+    "$1" "$2" "$3" "$4" "$5" "$6" "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"
+}
 pstat 4242 dota S 7 500 100 > "$fakeproc/4242/stat"
 pstat 4242 dota S 0 300 50  > "$fakeproc/4242/task/4242/stat"
 pstat 4243 'Render (main) 1' D 0 200 50 > "$fakeproc/4242/task/4243/stat"
@@ -632,6 +636,7 @@ pstat 4244 idle S 0 0 0 > "$fakeproc/4242/task/4244/stat"
 echo poll_schedule_timeout > "$fakeproc/4242/task/4242/wchan"
 echo nv_wait_for_gpu > "$fakeproc/4242/task/4243/wchan"
 echo futex_do_wait > "$fakeproc/4242/task/4244/wchan"
+printf 'Name:\tRender\nCpus_allowed_list:\t0,2-3\n' > "$fakeproc/4242/task/4243/status"
 
 run_sys() { MONITOR_PROC_ROOT="$fakeproc" run_monitor sys "$@"; }
 
@@ -646,11 +651,16 @@ eq "sys: swap usada"           "$(field "$scsv" 8)" "1000" "$out"
 eq "sys: psi parado = 0"       "$(field "$scsv" 9)" "0.0" "$out"
 eq "sys: threads do alvo"      "$(field "$scsv" 13)" "3" "$out"
 eq "sys: threads em D"         "$(field "$scsv" 15)" "1" "$out"
-eq "threads: 7 colunas"        "$(sed -n 2p "$tcsv" | awk -F, '{print NF}')" "7" "$out"
+eq "threads: 11 colunas"       "$(sed -n 2p "$tcsv" | awk -F, '{print NF}')" "11" "$out"
 eq "threads: comm com parenteses" "$(field "$tcsv" 4)" "Render (main) 1" "$out"
 eq "threads: estado apos o comm"  "$(field "$tcsv" 5)" "D" "$out"
 eq "threads: wchan"            "$(field "$tcsv" 7)" "nv_wait_for_gpu" "$out"
 eq "threads: ociosa fica fora" "$(grep -c ',idle,' "$tcsv")" "0" "$out"
+eq "threads: ultimo nucleo"    "$(field "$tcsv" 10)" "3" "$out"
+eq "threads: afinidade sem virgula" "$(field "$tcsv" 11)" "0 2-3" "$out"
+
+out=$(run_sys -P -d 1 2>&1)
+contains "perf: exige PID" "$out" "--perf needs a target PID"
 
 if runs "sys: sem pid nao cria threads"; then
   run_sys -d 1 -q -o "$TMP/sn.csv" >/dev/null 2>&1

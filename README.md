@@ -84,6 +84,7 @@ all: they read only `/proc` and `/sys`, so they run on a machine without
 | `-f, --filter TARGET` | Monitor only these processes — PID or name, comma-separated, repeatable |
 | `-D, --disk MODE` | `all` (default) = every physical disk; `off` = skip; or a list (`nvme0n1`, `sda,sdb`) |
 | `-S, --sys MODE` | `all` (default) = CPU, memory, PSI and target threads; `off` = skip |
+| `-P, --perf` | Sample the stacks of the `-f pid:N` targets with `perf record` (see below) |
 | `-t, --top N` | How many processes/threads in the final summary (default `5`; `0` off) |
 | `-q, --quiet` | Only write the CSVs, print nothing |
 | `-h, --help` | Help |
@@ -251,6 +252,8 @@ file with no clear question behind it.
 | `state` | `R` running, `S` sleeping, `D` uninterruptible… |
 | `cpu_pct` | thread CPU over the interval, in % of one core |
 | `wchan` | the kernel function the thread is sleeping in |
+| `user_pct` / `sys_pct` | `cpu_pct` split between the program's own code and the kernel |
+| `last_cpu` / `affinity` | the core it last ran on, and the cores it may run on (`0-15`; commas become spaces) |
 
 A thread enters the file once it uses 1% of a core and **stays for 10 more
 seconds after it goes idle**. That retention is the point: during a stall, the
@@ -265,6 +268,31 @@ a video driver function means waiting on the GPU; `0` means running.
 Why `wchan` and not the stack: `/proc/<pid>/task/<tid>/stack` and `syscall`
 require ptrace, which Yama (`ptrace_scope=1`, the Ubuntu default) denies for
 processes that are not children of the monitor. `wchan` only needs read access.
+
+### `-P`: where a thread spins
+
+The threads CSV says *which* thread spun and in what state; `perf` says *where*:
+in which library and function. For a thread at 100% while the GPU sits idle,
+that is what separates "the program stuck in a loop" from "the video driver
+busy-waiting on something".
+
+```bash
+sudo sysctl kernel.perf_event_paranoid=1     # without root; lasts until reboot
+monitor all -f pid:4242 -P -o run.csv
+tools/perf-window.sh run 14:10:24 14:10:26 GlobPool
+```
+
+It writes `<output>-perf.data` (compressed samples, 49 Hz by default —
+`MONITOR_PERF_FREQ`), `<output>-perf.clock` (a wall-clock/monotonic pair read at
+start, to put perf time on the CSVs' clock) and `<output>-perf.log`.
+`tools/perf-window.sh` takes a time window as the CSVs show it and prints the
+samples by thread, by the library they landed in, and by the first frame
+outside the kernel — kernel frames show without symbols while `kptr_restrict`
+is on, which is the default.
+
+`-P` needs `perf` installed (`linux-tools-$(uname -r)` on Ubuntu) and a PID
+target; a name target is not enough. `install.sh` does not install `tools/`:
+run `perf-window.sh` from the repository.
 
 ### A metric that is not reported is empty, never zero
 
@@ -307,6 +335,7 @@ lib/
 ├── filter.sh           --filter targets
 ├── disk.sh             disk collector (needs no GPU)
 ├── sys.sh              CPU, memory, PSI and thread collector (needs no GPU)
+├── perf.sh             -P: perf record on the target PIDs
 ├── report.sh           banner, summaries, footer
 ├── i18n.sh             language detection and catalog
 ├── i18n/               messages and help per language
@@ -314,6 +343,7 @@ lib/
     ├── nvidia.sh       via nvidia-smi — implemented
     ├── amd.sh          via amdgpu sysfs — implemented (no per-process VRAM)
     └── intel.sh        via i915/xe sysfs — untested on hardware
+tools/perf-window.sh    where the threads spent CPU in a time window
 tests/                  test suite and mocks
 ```
 
@@ -325,7 +355,7 @@ missing, rather than failing halfway through a collection.
 ## Tests
 
 ```bash
-./tests/run-tests.sh          # 126 tests, about a minute
+./tests/run-tests.sh          # 129 tests, about a minute
 ./tests/run-tests.sh -v amd   # filter, show output of failures
 ```
 
