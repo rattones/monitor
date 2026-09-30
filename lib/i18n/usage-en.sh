@@ -32,7 +32,9 @@ GPU options (subcommands all, gpu, proc):
   -g, --gpu IDX        Monitor only the GPU at index IDX (default: all)
   -b, --backend NAME   Force a backend (default: autodetection)
                        Available: $(backend_list | paste -sd" ")
-                       Only NVIDIA collects per-process VRAM today.
+                       nouveau = NVIDIA on the free driver (NVK): VRAM only,
+                       read through vulkaninfo. Only nvidia collects
+                       per-process VRAM.
 
 Process options (subcommands all, proc; -f pid:N also applies to sys):
   -p, --procs MODE     Per-process VRAM attribution (default: all)
@@ -80,8 +82,8 @@ Outputs (only the files of the active collectors are created):
   <output>-disk.csv    one line per disk per sample (read/write and temperature)
   <output>-sys.csv     one line per sample (CPU, memory, PSI and the target in aggregate)
   <output>-threads.csv one line per active target thread per sample (only with -f pid:N)
-  <output>-perf.data   perf samples (only with -P); <output>-perf.clock converts
-                       their time to the CSVs' - see tools/perf-window.sh
+  <output>-perf.data   perf samples (only with -P), with their own wall-clock
+                       reference - see tools/perf-window.sh
 
 Columns of <output>.csv:
   timestamp          local ISO-8601, with milliseconds
@@ -169,4 +171,5 @@ Environment:
   MONITOR_THREADS_MIN_PCT  Minimum CPU for a thread to enter the CSV (default: 1)
   MONITOR_THREADS_HOLD_S   Seconds it stays after going idle (default: 10)
   MONITOR_PERF_FREQ        Samples per second for -P (default: 49)
+  MONITOR_NOUVEAU_MIN_MS   Minimum ms between VRAM reads on nouveau (default: 2000)
 EOF

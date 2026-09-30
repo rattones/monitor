@@ -96,8 +96,9 @@ BACKEND_OPTIONAL_FUNCS=(
 
 # Ordem da autodeteccao. O primeiro cujo _probe aceitar e o escolhido, entao a
 # ordem importa numa maquina hibrida: a NVIDIA vem primeiro por ser a unica que
-# hoje atribui VRAM por processo.
-BACKEND_ORDER=(nvidia amd intel)
+# hoje atribui VRAM por processo. O nouveau logo depois: uma placa NVIDIA sem
+# nvidia-smi esta no driver livre, e nao e AMD nem Intel.
+BACKEND_ORDER=(nvidia nouveau amd intel)
 
 BACKEND=""        # nome do backend em uso, preenchido por backend_load
 GPU_COUNT=0       # quantas GPUs o backend encontrou, preenchido por <be>_init

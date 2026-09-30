@@ -38,6 +38,13 @@ case "${1-}" in
     ;;
   script)
     shift
+    # "-F tod,time" e a consulta da referencia de horario: com MOCK_PERF_TOD,
+    # responde a linha dele; sem, cai no texto das amostras, que nao tem data -
+    # como um perf.data gravado sem -k -, e o perf-window usa o .clock.
+    if [[ "$*" == *"-F tod,time"* && -n "${MOCK_PERF_TOD:-}" ]]; then
+      printf '%s\n' "$MOCK_PERF_TOD"
+      exit 0
+    fi
     [[ -n "${MOCK_PERF_LOG:-}" ]] && printf '%s\n' "$*" > "$MOCK_PERF_LOG"
     cat "${MOCK_PERF_SCRIPT:?MOCK_PERF_SCRIPT nao definido}"
     ;;

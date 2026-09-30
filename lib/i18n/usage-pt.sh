@@ -32,7 +32,8 @@ Opcoes de GPU (subcomandos all, gpu, proc):
   -g, --gpu IDX        Monitora apenas a GPU de indice IDX (padrao: todas)
   -b, --backend NOME   Forca um backend (padrao: autodeteccao)
                        Disponiveis: $(backend_list | paste -sd" ")
-                       So NVIDIA coleta hoje; AMD e Intel sao esqueletos.
+                       nouveau = NVIDIA no driver livre (NVK): so VRAM, lida
+                       pelo vulkaninfo. So o nvidia coleta VRAM por processo.
 
 Opcoes de processos (subcomandos all, proc; -f pid:N vale tambem para sys):
   -p, --procs MODO     Atribuicao de VRAM por processo (padrao: all)
@@ -80,8 +81,8 @@ Saidas (so os arquivos dos coletores ativos sao criados):
   <saida>-disk.csv     uma linha por disco por amostra (leitura/escrita e temperatura)
   <saida>-sys.csv      uma linha por amostra (CPU, memoria, PSI e o alvo agregado)
   <saida>-threads.csv  uma linha por thread ativa do alvo por amostra (so com -f pid:N)
-  <saida>-perf.data    amostras do perf (so com -P); <saida>-perf.clock converte
-                       o tempo delas para o dos CSVs - ver tools/perf-window.sh
+  <saida>-perf.data    amostras do perf (so com -P), com a propria referencia de
+                       horario real - ver tools/perf-window.sh
 
 Colunas de <saida>.csv:
   timestamp          ISO-8601 local, com milissegundos
@@ -167,4 +168,5 @@ Ambiente:
   MONITOR_THREADS_MIN_PCT  CPU minima para uma thread entrar no CSV (padrao: 1)
   MONITOR_THREADS_HOLD_S   Segundos que ela fica depois de parar (padrao: 10)
   MONITOR_PERF_FREQ        Amostras por segundo do -P (padrao: 49)
+  MONITOR_NOUVEAU_MIN_MS   Minimo de ms entre leituras de VRAM no nouveau (padrao: 2000)
 EOF

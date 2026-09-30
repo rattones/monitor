@@ -61,6 +61,7 @@ MSG[backend_unknown]='backend desconhecido: %s (procurei em %s)'
 MSG[backend_load_failed]='nao consegui carregar o backend %s'
 MSG[backend_incomplete]='o backend %s nao implementa: %s'
 MSG[backend_none_detected]='nenhuma GPU reconhecida (backends: %s) - use --backend para forcar'
+MSG[backend_procs_skipped]='aviso: o backend %s nao coleta VRAM por processo; o coletor de processos foi desligado\n'
 MSG[backend_no_procs]='o backend %s nao coleta VRAM por processo (use --procs off ou o subcomando gpu)'
 
 # --- NVIDIA ----------------------------------------------------------------
@@ -70,6 +71,12 @@ MSG[nvidia_list_failed]='nvidia-smi nao conseguiu listar a GPU%s: %s'
 MSG[nvidia_no_gpu]='nenhuma GPU encontrada%s'
 MSG[nvidia_at_index]=' no indice %s'
 MSG[nvidia_of_index]=' de indice %s'
+
+# --- nouveau (NVK) -------------------------------------------------------
+MSG[nouveau_no_vulkaninfo]='o backend nouveau precisa do vulkaninfo (pacote vulkan-tools) para ler a VRAM'
+MSG[nouveau_no_render]='nenhum render node encontrado para %s'
+MSG[nouveau_no_access]='sem acesso de leitura/escrita a %s (seu usuario esta no grupo render?)'
+MSG[nouveau_no_gpu]='nenhuma GPU no driver nouveau encontrada%s'
 
 # --- AMD / Intel -----------------------------------------------------------
 MSG[amd_no_gpu]='nenhuma GPU AMD encontrada%s'

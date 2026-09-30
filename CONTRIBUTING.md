@@ -140,7 +140,7 @@ Help text lives in `lib/i18n/usage-<code>.sh` — plain prose, not array entries
 ### Tests
 
 ```bash
-./tests/run-tests.sh          # 184 tests, about a minute
+./tests/run-tests.sh          # 204 tests, about a minute
 ./tests/run-tests.sh -v amd   # filter, and show output of failures
 ```
 

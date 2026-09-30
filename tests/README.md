@@ -3,7 +3,7 @@
 [English](README.md) · [Português](README.pt-BR.md)
 
 ```bash
-./tests/run-tests.sh              # 184 tests, about a minute
+./tests/run-tests.sh              # 204 tests, about a minute
 ./tests/run-tests.sh -v           # show the output of each failure
 ./tests/run-tests.sh amd          # only tests whose name contains "amd"
 ```

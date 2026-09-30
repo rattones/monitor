@@ -98,6 +98,7 @@ process is left orphaned.
 | Backend | GPU metrics | Per-process VRAM |
 |---|---|---|
 | `nvidia` | yes | yes |
+| `nouveau` | VRAM only | no |
 | `amd` | yes | no |
 | `intel` | yes\* | no |
 
@@ -107,15 +108,27 @@ The backend is autodetected, or forced with `-b/--backend`.
 against a Radeon Vega (Cezanne). On that APU `mem_util_pct` comes out empty
 because the card does not expose `mem_busy_percent`; dedicated cards usually do.
 
+**nouveau** is an NVIDIA card on the free stack — the `nouveau` kernel driver
+and NVK (Mesa) for Vulkan — where `nvidia-smi` does not exist. With the GSP
+firmware (Turing and newer) the driver exposes no hwmon, busy percentage,
+clocks or fdinfo stats, so only VRAM is filled in; every other column stays
+empty. VRAM is read through `vulkaninfo` (package `vulkan-tools`): NVK reports
+the card's free VRAM in `VK_EXT_memory_budget`, and used = size − budget / 0.9
+(Mesa gives 90% of the free VRAM as budget). It is an estimate within a few
+MiB. Each read creates a Vulkan device (~0.2 s), so VRAM is read at most every
+`MONITOR_NOUVEAU_MIN_MS` (default 2000) even with a smaller `-i`. Verified on an
+RTX 3050 Laptop (GA107) with Linux 7.0 and Mesa 26.0.
+
 **\* Intel** was written from kernel documentation and has **never run on real
 hardware** — there is no Intel GPU on the development machine. Its parsing and
 unit conversion are exercised against a simulated sysfs tree, but the paths
 themselves are unverified. It warns about this when it starts.
 [Help us fix that →](CONTRIBUTING.md)
 
-Neither AMD nor Intel has an equivalent to `nvidia-smi -q -d PIDS`, so `proc` is
-refused on them with an explanation rather than producing an empty CSV. To
-collect GPU and disk on AMD:
+Only `nvidia` has an equivalent to `nvidia-smi -q -d PIDS`, so `proc` is refused
+on the others with an explanation rather than producing an empty CSV; under
+`all` the process collector is just skipped, with a notice, and the rest runs.
+To collect GPU and disk on AMD:
 
 ```bash
 monitor -b amd -p off
@@ -283,8 +296,9 @@ tools/perf-window.sh run 14:10:24 14:10:26 GlobPool
 ```
 
 It writes `<output>-perf.data` (compressed samples, 49 Hz by default —
-`MONITOR_PERF_FREQ`), `<output>-perf.clock` (a wall-clock/monotonic pair read at
-start, to put perf time on the CSVs' clock) and `<output>-perf.log`.
+`MONITOR_PERF_FREQ`) and `<output>-perf.log`. It records on `CLOCK_MONOTONIC`,
+which makes perf store its own wall-clock reference in the file (`perf script
+-F tod`) — that is how `perf-window.sh` maps the CSVs' times onto perf's.
 `tools/perf-window.sh` takes a time window as the CSVs show it and prints the
 samples by thread, by the library they landed in, and by the first frame
 outside the kernel — kernel frames show without symbols while `kptr_restrict`
@@ -339,8 +353,11 @@ lib/
 ├── report.sh           banner, summaries, footer
 ├── i18n.sh             language detection and catalog
 ├── i18n/               messages and help per language
+├── helpers/
+│   └── nouveau-sampler.sh  VRAM producer for the nouveau backend (vulkaninfo)
 └── backends/
     ├── nvidia.sh       via nvidia-smi — implemented
+    ├── nouveau.sh      NVIDIA on nouveau/NVK — VRAM only
     ├── amd.sh          via amdgpu sysfs — implemented (no per-process VRAM)
     └── intel.sh        via i915/xe sysfs — untested on hardware
 tools/perf-window.sh    where the threads spent CPU in a time window
@@ -355,7 +372,7 @@ missing, rather than failing halfway through a collection.
 ## Tests
 
 ```bash
-./tests/run-tests.sh          # 184 tests, about a minute
+./tests/run-tests.sh          # 204 tests, about a minute
 ./tests/run-tests.sh -v amd   # filter, show output of failures
 ```
 

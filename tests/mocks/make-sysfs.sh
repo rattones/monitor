@@ -64,6 +64,17 @@ PCI_SLOT_NAME=0000:03:00.0"
     [[ -n "$MOCK_POWER" ]] && w "$CARD/device/hwmon/hwmon5/power1_input" "$MOCK_POWER"
     ;;
 
+  nouveau_*)
+    # Sem hwmon nenhum: e o que o nouveau com firmware GSP expoe. O render
+    # node da placa aparece em device/drm/, e o no /dev falso ao lado da arvore.
+    rm -rf "$CARD/device/hwmon"
+    w "$CARD/device/uevent" "DRIVER=nouveau
+PCI_SLOT_NAME=0000:01:00.0"
+    w "$CARD/device/device" "$MOCK_PCI_ID"
+    mkdir -p "$CARD/device/drm/renderD128" "$DEST/dev/dri"
+    : > "$DEST/dev/dri/renderD128"
+    ;;
+
   *)
     printf 'perfil sem regra de sysfs: %s\n' "$PROFILE" >&2; exit 1 ;;
 esac

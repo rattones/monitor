@@ -8,5 +8,6 @@ set -uo pipefail
 "profile_${MOCK_PROFILE:-amd_moderna}" 2>/dev/null || exit 1
 case "${MOCK_PROFILE:-}" in
   amd_*)   printf '03:00.0 VGA compatible controller: Advanced Micro Devices, Inc. [AMD/ATI] [%s] (rev c1)\n' "$MOCK_GPU_NAME" ;;
+  nouveau_*) printf '01:00.0 VGA compatible controller: NVIDIA Corporation GA107BM [%s] (rev a1)\n' "$MOCK_GPU_NAME" ;;
   intel_*) printf '03:00.0 VGA compatible controller: Intel Corporation [%s] (rev 05)\n' "$MOCK_GPU_NAME" ;;
 esac

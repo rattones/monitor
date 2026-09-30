@@ -23,6 +23,11 @@
 
 set -uo pipefail
 export LC_ALL=C
+# Sem debuginfod: com ele (padrao no Ubuntu) o perf consulta a rede para cada
+# biblioteca sem simbolos - a primeira analise levou 14 s parada, e os build-ids
+# das bibliotecas do jogo iriam para um servidor externo. Os simbolos locais
+# bastam para dizer em qual biblioteca e funcao a thread estava.
+export DEBUGINFOD_URLS=
 
 die() { printf 'erro: %s\n' "$1" >&2; exit 1; }
 
@@ -31,12 +36,31 @@ base="$1"; from="$2"; to="$3"; thread="${4:-}"
 base="${base%.csv}"; base="${base%-perf.data}"
 data="$base-perf.data"; clock="$base-perf.clock"
 [[ -r "$data" ]]  || die "nao achei $data"
-[[ -r "$clock" ]] || die "nao achei $clock"
 command -v perf >/dev/null 2>&1 || die "perf nao encontrado"
 
-rt0=$(sed -n 's/^realtime=//p' "$clock")
-mono0=$(sed -n 's/^monotonic=//p' "$clock")
-[[ -n "$rt0" && -n "$mono0" ]] || die "$clock incompleto"
+# Horario torto para antes de tocar no perf.data: a conversao de verdade vem
+# depois (precisa do dia da coleta), mas "25:99" nao vale em dia nenhum.
+for t in "$from" "$to"; do
+  date -d "$t" >/dev/null 2>&1 || die "horario invalido: $t"
+done
+
+# A ponte entre o horario dos CSVs e o relogio do perf. Gravado com -k, o
+# perf.data traz a referencia de horario real, e o "-F tod" mostra a hora de
+# cada amostra ao lado do tempo monotonico: o primeiro par basta. Gravacoes
+# antigas do monitor nao tinham isso confirmado e deixavam um .clock com o par
+# lido no inicio da coleta - ele fica como alternativa.
+rt0=""; mono0=""
+read -r rt0 mono0 < <(perf script -i "$data" -F tod,time 2>/dev/null | awk '
+  $1 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ && $3 ~ /^[0-9.]+:$/ {
+    sub(/:$/, "", $3); print $1 " " $2, $3; exit
+  }' | { read -r d t m && printf "%s %s\n" "$(date -d "$d $t" +%s.%N)" "$m"; })
+if [[ -z "$rt0" || -z "$mono0" ]]; then
+  [[ -r "$clock" ]] \
+    || die "sem referencia de horario: o perf.data nao tem -F tod e nao achei $clock"
+  rt0=$(sed -n 's/^realtime=//p' "$clock")
+  mono0=$(sed -n 's/^monotonic=//p' "$clock")
+  [[ -n "$rt0" && -n "$mono0" ]] || die "$clock incompleto"
+fi
 
 # O horario vem sem data: e o dia em que a coleta comecou. Uma coleta que vira
 # a meia-noite exigiria a data explicita, o que "de" e "ate" aceitam tambem

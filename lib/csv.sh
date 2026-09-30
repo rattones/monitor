@@ -40,7 +40,6 @@ setup_outputs() {
   SYS_OUT="${OUTPUT%.csv}-sys.csv"
   THREADS_OUT="${OUTPUT%.csv}-threads.csv"
   PERF_OUT="${OUTPUT%.csv}-perf.data"
-  PERF_CLOCK="${OUTPUT%.csv}-perf.clock"
   PERF_LOG="${OUTPUT%.csv}-perf.log"
 
   (( WANT_GPU )) && init_csv "$OUTPUT" "$GPU_CSV_HEADER"

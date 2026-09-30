@@ -7,17 +7,17 @@
 # isso que separa "o jogo preso num laco" de "o driver de video esperando
 # ativamente por algo" - o que o /proc sozinho nao consegue mostrar.
 #
-# Grava tres arquivos:
+# Grava dois arquivos:
 #
 #   <saida>-perf.data    as amostras, comprimidas (-z)
-#   <saida>-perf.clock   o par relogio real / monotonico lido no inicio, para
-#                        converter o tempo do perf para o horario dos CSVs
 #   <saida>-perf.log     o que o perf imprimiu
 #
-# Por que -k CLOCK_MONOTONIC: o relogio padrao do perf nao tem relacao definida
-# com nenhum relogio que o shell leia. Com o monotonico ha uma ponte - o par
-# gravado no .clock. O CLOCK_BOOTTIME seria o ideal (e o do /proc/uptime que
-# o sys.sh usa), mas o kernel recusa esse clockid para eventos de hardware.
+# Por que -k CLOCK_MONOTONIC: com um clockid explicito o perf grava no proprio
+# perf.data a referencia de horario real ("clock data" no cabecalho), e o
+# "perf script -F tod" passa a mostrar a hora de cada amostra. E essa a ponte
+# para o horario dos CSVs - sem ela, o shell nao tem como ler o monotonico. O
+# CLOCK_BOOTTIME seria o ideal (e o do /proc/uptime que o sys.sh usa), mas o
+# kernel recusa esse clockid para eventos de hardware.
 #
 # Frequencia baixa por padrao (49 Hz): um jogo ocupa varios nucleos por horas,
 # e com pilha completa isso vira centenas de MB. Para achar uma thread que
@@ -45,25 +45,7 @@ resolve_perf() {
   fi
 }
 
-# O par real/monotonico. O shell nao le o monotonico sozinho: vem do python3
-# quando existe. Sem ele cai para o /proc/uptime (boottime), que so difere do
-# monotonico pelo tempo que a maquina passou suspensa - o arquivo diz qual fonte
-# foi usada, para quem converter saber o quanto confiar.
-write_perf_clock() {
-  local out="$1" pair src
-  if pair=$(python3 -c 'import time; print("%.6f %.6f" % (time.time(), time.clock_gettime(time.CLOCK_MONOTONIC)))' 2>/dev/null); then
-    src=python3
-  else
-    pair="$(date +%s.%N) $(cut -d' ' -f1 /proc/uptime)"
-    src=uptime
-  fi
-  printf 'realtime=%s\nmonotonic=%s\nsource=%s\n' "${pair% *}" "${pair#* }" "$src" > "$out" \
-    || die "$(msg csv_write_failed "$out")"
-}
-
 start_perf() {
-  write_perf_clock "$PERF_CLOCK"
-
   # SIGINT, e nao o TERM padrao do timeout: e o sinal com que o perf fecha o
   # arquivo direito. -p segue as threads que o alvo criar depois (inherit).
   (

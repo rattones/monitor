@@ -18,7 +18,7 @@
 
 set -uo pipefail
 
-VERSION="3.4"
+VERSION="3.5"
 
 # readlink -f resolve a cadeia de symlinks ate o arquivo real: instalado, o
 # comando em /usr/local/bin e um link, e sem isto o lib/ seria procurado ao
@@ -55,9 +55,13 @@ setup_backend() {
   backend_call init
 
   # Um backend que nao sabe atribuir VRAM por processo deve dizer isso antes da
-  # coleta, em vez de gerar um CSV com so o cabecalho.
+  # coleta, em vez de gerar um CSV com so o cabecalho. Pedido explicito ("proc")
+  # e recusado; no "all" o coletor so sai da lista, para os outros continuarem -
+  # e o caso do gancho de jogo, que chama "all" sem saber qual driver esta ativo.
   if (( WANT_PROC )) && ! backend_call supports_procs; then
-    die "$(msg backend_no_procs "$(backend_call name)")"
+    [[ "$CMD" == all ]] || die "$(msg backend_no_procs "$(backend_call name)")"
+    WANT_PROC=0
+    (( QUIET )) || msg backend_procs_skipped "$(backend_call name)" >&2
   fi
 }
 

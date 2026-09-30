@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#
+# nouveau-sampler falso: faz o papel do lib/helpers/nouveau-sampler.sh, que le a
+# VRAM pelo vulkaninfo de uma placa real. Mesmos argumentos e mesma saida
+# (timestamp,indice,total_bytes,usada_bytes), com os valores do perfil.
+set -uo pipefail
+export LC_ALL=C
+. "${MOCK_DIR:?}/gpu-profiles.sh"
+"profile_${MOCK_PROFILE:?}" || exit 1
+iv_ms=$1; min_ms=$2; shift 2
+(( iv_ms < min_ms )) && iv_ms=$min_ms
+while :; do
+  ts=$(date +%Y-%m-%dT%H:%M:%S.%3N | cut -c1-23)
+  for idx in "$@"; do printf '%s,%s,%s,%s\n' "$ts" "$idx" "$MOCK_VRAM_TOTAL" "$MOCK_VRAM_USED"; done
+  sleep "$(awk -v m="$iv_ms" 'BEGIN { printf "%.3f", m / 1000 }')"
+done

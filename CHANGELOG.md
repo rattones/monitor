@@ -6,6 +6,32 @@ All notable changes to this project. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the version is the
 one printed by `monitor --version`.
 
+## [3.5] — 2026-09-29
+
+### Added
+
+- **`nouveau` backend** (`lib/backends/nouveau.sh`): an NVIDIA card on the free
+  stack (nouveau kernel driver + NVK), where `nvidia-smi` does not exist. Fills
+  VRAM total, used, free and percentage; the driver exposes nothing else with
+  the GSP firmware, so the other columns stay empty. VRAM comes from
+  `vulkaninfo` (`VK_EXT_memory_budget`: used = size − budget / 0.9), read at most
+  every `MONITOR_NOUVEAU_MIN_MS` (2000 by default) because each read creates a
+  Vulkan device. Producer in `lib/helpers/nouveau-sampler.sh`. Autodetected
+  after `nvidia`.
+- 20 new tests (204 in total) for the nouveau backend, against a fake sampler.
+
+### Changed
+
+- `all` with a backend that has no per-process VRAM (nouveau, AMD, Intel) now
+  skips the process collector with a notice instead of refusing to start; an
+  explicit `proc` is still refused.
+- `-P` no longer writes `<output>-perf.clock`: recording on `CLOCK_MONOTONIC`
+  makes perf store the wall-clock reference in `perf.data` itself, and
+  `tools/perf-window.sh` reads it with `perf script -F tod`. Old recordings
+  with a `.clock` still work. This also removes the only use of `python3`.
+- `tools/perf-window.sh` runs perf without debuginfod: it stalled 14 s on the
+  network and sent the game libraries' build-ids to an external server.
+
 ## [3.4] — 2026-09-29
 
 ### Added

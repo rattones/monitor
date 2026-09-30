@@ -110,7 +110,7 @@ if runs "mock nvidia-smi driver morto"; then
   eq "mock nvidia-smi driver morto" "$?" "9"
 fi
 
-for p in amd_moderna amd_antiga intel_moderna intel_antiga; do
+for p in amd_moderna amd_antiga intel_moderna intel_antiga nouveau_moderna nouveau_antiga; do
   if runs "mock sysfs $p"; then
     if "$MOCK_DIR/make-sysfs.sh" "$TMP/sys_$p" "$p" >/dev/null 2>&1; then
       ok "mock sysfs $p"
@@ -258,6 +258,66 @@ eq "amd antiga: vram usada MiB"   "$(field "$csv" 7)"  "1024" "$out"
 # power1_average em vez de power1_input: o backend tem de achar os dois.
 eq "amd antiga: acha power1_average" "$(field "$csv" 11)" "78.00" "$out"
 eq "amd antiga: clock sm MHz"     "$(field "$csv" 12)" "1275" "$out"
+
+# ===========================================================================
+group "NVIDIA no nouveau/NVK - moderna (RTX 3050: so VRAM)"
+# ===========================================================================
+
+# O sampler real le o vulkaninfo de uma placa de verdade; aqui o falso devolve
+# os valores do perfil. MIN_MS baixo para a coleta de 1 s ter linhas.
+run_nouveau() {
+  MONITOR_NOUVEAU_SAMPLER="$MOCK_DIR/nouveau-sampler" MONITOR_NOUVEAU_MIN_MS=200 \
+    MONITOR_DEV_ROOT="$TMP/sys_$MOCK_PROFILE/dev" run_monitor "$@"
+}
+
+export MOCK_PROFILE=nouveau_moderna
+export MONITOR_DRM_ROOT="$TMP/sys_nouveau_moderna/class/drm"
+csv="$TMP/nv_nouveau.csv"
+out=$(run_nouveau gpu -b nouveau -d 1 -q -o "$csv")
+
+eq "nouveau moderna: 13 colunas"      "$(sed -n 2p "$csv" | awk -F, '{print NF}')" "13" "$out"
+eq "nouveau moderna: nome"            "$(field "$csv" 3)"  "NVIDIA GeForce RTX 3050 Mobile" "$out"
+eq "nouveau moderna: vram total MiB"  "$(field "$csv" 6)"  "4096" "$out"
+eq "nouveau moderna: vram usada MiB"  "$(field "$csv" 7)"  "768" "$out"
+eq "nouveau moderna: vram livre MiB"  "$(field "$csv" 8)"  "3328" "$out"
+eq "nouveau moderna: vram %"          "$(field "$csv" 9)"  "18.8" "$out"
+# O nouveau com GSP nao informa uso, temperatura, potencia nem clocks.
+eq "nouveau moderna: util VAZIO"      "$(field "$csv" 4)"  "" "$out"
+eq "nouveau moderna: temp VAZIA"      "$(field "$csv" 10)" "" "$out"
+eq "nouveau moderna: potencia VAZIA"  "$(field "$csv" 11)" "" "$out"
+eq "nouveau moderna: clocks VAZIOS"   "$(cut -d, -f12,13 <<< "$(sed -n 2p "$csv")")" "," "$out"
+
+if runs "nouveau: all segue sem o coletor de processos"; then
+  out=$(run_nouveau all -b nouveau -D off -S off -d 1 -o "$TMP/nv_all.csv" 2>&1)
+  if [[ "$out" == *"skipping the process collector"* && -s "$TMP/nv_all.csv" \
+        && ! -e "$TMP/nv_all-procs.csv" ]]; then ok "nouveau: all segue sem o coletor de processos"
+  else no "nouveau: all segue sem o coletor de processos" "esperava aviso, CSV da GPU e nenhum -procs.csv" "$out"; fi
+fi
+
+out=$(run_nouveau proc -b nouveau -d 1 2>&1)
+contains "nouveau: proc explicito e recusado" "$out" "does not collect per-process VRAM"
+
+out=$(MONITOR_NOUVEAU_MIN_MS=abc MONITOR_NOUVEAU_SAMPLER="$MOCK_DIR/nouveau-sampler" \
+      MONITOR_DEV_ROOT="$TMP/sys_nouveau_moderna/dev" run_monitor gpu -b nouveau -d 1 2>&1)
+contains "nouveau: MIN_MS invalido" "$out" "invalid value in MONITOR_NOUVEAU_MIN_MS"
+
+out=$(MONITOR_NOUVEAU_SAMPLER="$MOCK_DIR/nouveau-sampler" MONITOR_DEV_ROOT="$TMP/naoexiste" \
+      run_monitor gpu -b nouveau -d 1 2>&1)
+contains "nouveau: sem acesso ao render node" "$out" "render group"
+
+# ===========================================================================
+group "NVIDIA no nouveau/NVK - antiga (sem budget no Mesa)"
+# ===========================================================================
+
+export MOCK_PROFILE=nouveau_antiga
+export MONITOR_DRM_ROOT="$TMP/sys_nouveau_antiga/class/drm"
+csv="$TMP/nv_nouveau_old.csv"
+out=$(run_nouveau gpu -b nouveau -d 1 -q -o "$csv")
+
+eq "nouveau antiga: 13 colunas"         "$(sed -n 2p "$csv" | awk -F, '{print NF}')" "13" "$out"
+eq "nouveau antiga: vram total VAZIA"   "$(field "$csv" 6)" "" "$out"
+eq "nouveau antiga: vram usada VAZIA"   "$(field "$csv" 7)" "" "$out"
+eq "nouveau antiga: vram % VAZIA"       "$(field "$csv" 9)" "" "$out"
 
 # ===========================================================================
 group "Intel - moderna (Arc A770: dedicada, com VRAM)"
@@ -842,10 +902,9 @@ contains "perf: grava no -o derivado"    "$pdata" "-o $pbase-perf.data"
 # O perf real so fecha o perf.data direito com SIGINT; o timeout do -d manda
 # esse sinal, e nao o TERM padrao.
 contains "perf: -d encerra com INT"      "$pdata" "stopped: INT"
-eq "perf: .clock com o par de relogios" \
-   "$(grep -cE '^(realtime|monotonic)=[0-9]+\.[0-9]+$' "$pbase-perf.clock" 2>/dev/null)" "2" "$out"
-eq "perf: .clock diz a fonte" \
-   "$(grep -cE '^source=(python3|uptime)$' "$pbase-perf.clock" 2>/dev/null)" "1" "$out"
+# A referencia de horario vai no proprio perf.data (-k): nada de .clock.
+eq "perf: sem .clock (o perf.data traz o horario)" \
+   "$([[ -e "$pbase-perf.clock" ]] && echo existe || echo ausente)" "ausente" "$out"
 contains "perf: banner mostra o arquivo" "$out" "perf in: $pbase-perf.data (49 Hz)"
 contains "perf: rodape mostra o arquivo" "$out" "perf: $pbase-perf.data"
 
@@ -877,7 +936,7 @@ fi
 group "tools/perf-window.sh"
 # ===========================================================================
 
-# Um .clock com a coleta comecando as 14:10:00 locais e o monotonico em 1000:
+# Gravacao antiga, sem -F tod: o .clock com a coleta comecando as 14:10:00 locais e o monotonico em 1000:
 # a janela 14:10:24-14:10:26 tem de virar 1024-1026 no relogio do perf.
 PW="$ROOT/tools/perf-window.sh"
 wbase="$TMP/pw"
@@ -948,6 +1007,14 @@ if runs "perf-window: horario invalido para"; then
   # Tem de parar antes de chamar o perf, e nao seguir com uma janela vazia.
   eq "perf-window: horario invalido para" \
      "$rc:$(grep -c 'horario invalido' <<< "$out"):$(wc -c < "$TMP/perf-script.args")" "1:1:0"
+fi
+
+# O caminho de hoje: a referencia vem do "perf script -F tod", sem .clock.
+if runs "perf-window: referencia pelo tod"; then
+  : > "$TMP/pw3-perf.data"
+  MOCK_PERF_TOD='2026-09-29 14:10:00.000000 1000.000000: ' run_pw "$TMP/pw3" 14:10:24 14:10:26 >/dev/null
+  contains "perf-window: referencia pelo tod" "$(cat "$TMP/perf-script.args" 2>/dev/null)" \
+           "--time 1024.000000,1026.000000"
 fi
 
 out=$(run_pw "$TMP/naoexiste" 14:10:24 14:10:26)

@@ -116,7 +116,7 @@ fi
 
 # Sintaxe conferida antes de instalar: melhor falhar agora do que deixar um
 # comando quebrado no PATH.
-for f in "$SRC_DIR/monitor.sh" "$SRC_DIR"/lib/*.sh "$SRC_DIR"/lib/backends/*.sh \
+for f in "$SRC_DIR/monitor.sh" "$SRC_DIR"/lib/*.sh "$SRC_DIR"/lib/backends/*.sh "$SRC_DIR"/lib/helpers/*.sh \
          "$SRC_DIR"/lib/i18n/*.sh; do
   bash -n "$f" 2>/dev/null || die "syntax error in $f - install aborted"
 done

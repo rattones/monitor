@@ -3,7 +3,7 @@
 [English](README.md) · [Português](README.pt-BR.md)
 
 ```bash
-./tests/run-tests.sh              # 184 testes, cerca de um minuto
+./tests/run-tests.sh              # 204 testes, cerca de um minuto
 ./tests/run-tests.sh -v           # mostra a saída de cada falha
 ./tests/run-tests.sh amd          # só os testes cujo nome contém "amd"
 ```

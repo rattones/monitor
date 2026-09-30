@@ -119,6 +119,29 @@ profile_intel_antiga() {
   MOCK_FREQ_FILE="gt_cur_freq_mhz" # so a frequencia pedida, sem gt_act_*
 }
 
+# --- NVIDIA no nouveau (NVK) ------------------------------------------------
+#
+# Valores em bytes, como o sampler recebe do vulkaninfo. O nouveau com GSP nao
+# tem hwmon, busy nem clocks: essas colunas saem vazias em qualquer placa.
+
+# RTX 3050 Laptop (GA107, 2021), medida nesta maquina: 4 GiB, NVK com
+# VK_EXT_memory_budget, entao a VRAM usada existe.
+profile_nouveau_moderna() {
+  MOCK_GPU_NAME="GeForce RTX 3050 Mobile"
+  MOCK_PCI_ID="0x25e2"
+  MOCK_VRAM_TOTAL=4294967296      # 4 GiB
+  MOCK_VRAM_USED=805306368        # 768 MiB
+}
+
+# GTX 1050 (Pascal, 2016) num Mesa sem o budget: o vulkaninfo nao mostra o
+# heap com budget, e a VRAM inteira tem de sair vazia - nao zero.
+profile_nouveau_antiga() {
+  MOCK_GPU_NAME="GeForce GTX 1050"
+  MOCK_PCI_ID="0x1c81"
+  MOCK_VRAM_TOTAL=""
+  MOCK_VRAM_USED=""
+}
+
 # --- processos na GPU ------------------------------------------------------
 #
 # Usados pelo mock do nvidia-smi -q -d PIDS. Os tipos cobrem os tres casos que
