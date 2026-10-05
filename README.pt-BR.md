@@ -26,6 +26,10 @@ amostrados no mesmo relógio, então os CSVs se juntam pelo timestamp. Sem daemo
 sem dependência além de bash e awk, e com flush a cada amostra — dá para plotar
 enquanto a coleta ainda roda.
 
+Para um jogo que trava com a GPU parada, o repositório tem também uma sonda
+bpftrace da thread principal, separada e só para root
+([`probe/`](#sonda-de-travadas-probe-root)).
+
 ## Instalação
 
 ```bash
@@ -320,6 +324,36 @@ mesmas colunas, na mesma ordem — é o que permite juntar coletas de máquinas
 diferentes no mesmo gráfico — e deixa a célula vazia quando aquele hardware não
 expõe a métrica.
 
+## Sonda de travadas (`probe/`, root)
+
+Os CSVs dizem *que* a thread principal parou e qual thread girou enquanto isso.
+O `probe/freeze-probe.sh` diz *o que a principal esperava* e *o que a
+liberou*. É um programa bpftrace, por isso precisa de root, e roda à parte: o
+monitor continua como usuário, sem mudança, e os dois gravam em
+`~/.monitor/log` no mesmo relógio local.
+
+```bash
+sudo ./probe/freeze-probe.sh --check   # uma vez: valida o programa neste kernel
+sudo ./probe/freeze-probe.sh           # espera o dota2 (-n NOME, -p PID) e sai junto com ele
+```
+
+Para cada parada da thread principal acima do limiar (`-t`, 500 ms por padrão),
+seja dormindo num `futex`, num `epoll_wait` ou sem fazer chamada de sistema
+nenhuma, grava um bloco em `<nome>-<data>-probe.txt` com:
+
+- o timeout que a thread pediu ao kernel e o valor de retorno;
+- a pilha de usuário no momento em que ela foi dormir;
+- um `FUTEX_WAKE` no mesmo endereço vindo de outra thread do processo;
+- o evento do epoll que disparou, traduzido para o descritor pelo `fdinfo`;
+- amostras de pilha a 99 Hz de todas as threads do processo enquanto a
+  principal está parada, e as chamadas de sistema que elas fizeram.
+
+Guarda também `<nome>-<data>-probe.maps`, os trechos executáveis do processo, e
+no fim troca os quadros `0x... ([unknown])` das pilhas por
+`biblioteca.so+0xdeslocamento`. Precisa do `bpftrace` (testado com 0.25) e de
+kernel com BTF. O `install.sh` não instala o `probe/`: rode do repositório.
+Detalhes e limites em [probe/README.pt-BR.md](probe/README.pt-BR.md).
+
 ## Idioma
 
 O texto que aparece em execução — ajuda, erros, banner e resumos — segue o
@@ -367,6 +401,9 @@ lib/
     ├── amd.sh          via sysfs amdgpu — implementado (sem VRAM/processo)
     └── intel.sh        via sysfs i915/xe — não testado em hardware
 tools/perf-window.sh    onde as threads gastaram CPU numa janela de horário
+probe/                  sonda de travadas da thread principal (bpftrace, root)
+├── freeze-probe.sh     lançador: espera o processo, roda a sonda, sai junto com ele
+└── freeze.bt           o programa bpftrace
 tests/                  suíte de testes e mocks
 ```
 
@@ -378,7 +415,7 @@ que falta, em vez de falhar no meio de uma coleta.
 ## Testes
 
 ```bash
-./tests/run-tests.sh          # 204 testes, cerca de um minuto
+./tests/run-tests.sh          # 224 testes, cerca de dois minutos
 ./tests/run-tests.sh -v amd   # filtra e mostra a saída das falhas
 ```
 
@@ -433,6 +470,15 @@ vazia — sem atribuir nada. Este script usa `nvidia-smi -q -d PIDS`, que traz a
 duas famílias com o tipo explícito; `--procs compute` mantém quem tem contexto
 de compute (`C` e também `C+G`, como um jogo que usa CUDA e vídeo ao mesmo
 tempo) e reproduz o recorte do `--query-compute-apps`.
+
+## Na prática
+
+O CSV de threads, o `-P`, o backend nouveau e a sonda foram escritos durante a
+caça a travadas de ~3 s no Dota 2 num notebook Ryzen. A causa acabou sendo o
+firmware, que deixa o TSC do CPU 0 segundos atrás dos outros núcleos, com a
+frequência aumentada pelo ranking de núcleos preferidos do amd-pstate no
+kernel. A investigação inteira, com os dados de cada ferramenta, está em
+[ValveSoftware/Dota-2#3558](https://github.com/ValveSoftware/Dota-2/issues/3558).
 
 ## Changelog
 

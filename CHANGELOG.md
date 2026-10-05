@@ -17,8 +17,15 @@ one printed by `monitor --version`.
   `~/.monitor/log/<name>-<date>-probe.txt`: requested timeout and return value,
   stack at sleep, who woke it and through which mechanism, `FUTEX_WAKE` on the
   same address, the epoll fd that fired, and the threads that ran meanwhile.
-  `--check` validates the program on the running kernel. See `probe/README.md`.
-- 20 tests for the probe launcher, with a fake `bpftrace` and `/proc`.
+  `--check` validates the program on the running kernel. It also keeps
+  `<name>-<date>-probe.maps` (the process's executable mappings) and at the end
+  rewrites `0x... ([unknown])` stack frames as `library.so+0xoffset`. All probe
+  state lives in keyed maps, because it is read from other CPUs. See
+  `probe/README.md`.
+- README: a section on the probe, the `probe/` tree, and "In practice", which
+  links the investigation the tools were built for.
+- 20 tests (224 in total) for the probe launcher, with a fake `bpftrace` and a
+  fake `/proc`.
 
 ## [3.5] — 2026-09-29
 

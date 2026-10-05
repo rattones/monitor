@@ -17,8 +17,15 @@ Todas as mudanças relevantes do projeto. O formato segue o
   limiar (`futex`, `epoll` ou sem syscall): timeout pedido e retorno, pilha ao
   dormir, quem acordou e por qual mecanismo, `FUTEX_WAKE` no mesmo endereço,
   descritor do epoll que disparou e as threads que rodaram durante a parada.
-  `--check` valida o programa no kernel. Ver `probe/README.pt-BR.md`.
-- 20 testes para o lançador da sonda, com `bpftrace` e `/proc` falsos.
+  `--check` valida o programa no kernel. Guarda também
+  `<nome>-<data>-probe.maps` (os trechos executáveis do processo) e no fim troca
+  os quadros `0x... ([unknown])` das pilhas por `biblioteca.so+0xdeslocamento`.
+  Todo o estado da sonda fica em mapas com chave, porque é lido de outras CPUs.
+  Ver `probe/README.pt-BR.md`.
+- README: seção sobre a sonda, a pasta `probe/` na árvore do código e "Na
+  prática", com o link da investigação para a qual as ferramentas foram feitas.
+- 20 testes (224 no total) para o lançador da sonda, com `bpftrace` e `/proc`
+  falsos.
 
 ## [3.5] — 2026-09-29
 

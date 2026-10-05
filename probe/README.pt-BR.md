@@ -86,6 +86,10 @@ WAKE_MESMO_ENDERECO ... tid=... comm=GlobPool/1 ...      (se houver)
   Pilhas podem sair curtas onde o código não preserva o frame pointer.
 - A amostragem em `profile:hz:99` fica de fora de travadas mais curtas que
   ~10 ms, o que não importa para limiares de centenas de ms.
+- **Falha conhecida:** no kernel 7.0 o registro de "quem acordou"
+  (`sched_waking`) funcionou nas esperas em futex, mas veio vazio em todas as
+  esperas em epoll. O motivo ainda não é conhecido. No epoll, a linha
+  `primeiro_evento` e a tabela de fds continuam dizendo qual eventfd disparou.
 
 ## Arquivos
 

@@ -26,6 +26,9 @@ same clock so the CSVs join on the timestamp. No daemon, no dependencies beyond
 bash and awk, and the files are flushed every sample so you can plot them while
 collection is still running.
 
+For a game that freezes while the GPU sits idle, the repository also has a
+separate, root-only bpftrace probe of the main thread ([`probe/`](#freeze-probe-probe-root)).
+
 ## Install
 
 ```bash
@@ -315,6 +318,36 @@ writes the same columns in the same order — that is what lets you put
 collections from different machines on the same chart — and leaves a cell empty
 when that hardware does not expose the metric.
 
+## Freeze probe (`probe/`, root)
+
+The CSVs say *that* the main thread stopped and which thread spun meanwhile.
+`probe/freeze-probe.sh` says *what the main thread was waiting for* and *what
+released it*. It is a bpftrace program, so it needs root, and it runs on its
+own: the monitor keeps running unprivileged and unchanged, and both write to
+`~/.monitor/log` on the same local clock.
+
+```bash
+sudo ./probe/freeze-probe.sh --check   # once: validate the program on this kernel
+sudo ./probe/freeze-probe.sh           # waits for dota2 (-n NAME, -p PID), exits with it
+```
+
+For every main-thread stop longer than the threshold (`-t`, 500 ms by default),
+whether asleep in a `futex`, in `epoll_wait`, or making no system call at all,
+it writes one block to `<name>-<date>-probe.txt` with:
+
+- the timeout the thread asked the kernel for, and the return value;
+- its user stack when it went to sleep;
+- a `FUTEX_WAKE` on the same address from another thread of the process;
+- the epoll event that fired, mapped to its file descriptor through `fdinfo`;
+- 99 Hz stack samples of every thread of the process while the main thread is
+  stopped, and the system calls they made.
+
+It also keeps `<name>-<date>-probe.maps`, the process's executable mappings,
+and at the end rewrites `0x... ([unknown])` stack frames as
+`library.so+0xoffset`. Needs `bpftrace` (tested with 0.25) and kernel BTF.
+`install.sh` does not install `probe/`: run it from the repository. Details
+and limits in [probe/README.md](probe/README.md).
+
 ## Language
 
 Runtime text — help, errors, banner and summaries — follows the system locale.
@@ -361,6 +394,9 @@ lib/
     ├── amd.sh          via amdgpu sysfs — implemented (no per-process VRAM)
     └── intel.sh        via i915/xe sysfs — untested on hardware
 tools/perf-window.sh    where the threads spent CPU in a time window
+probe/                  freeze probe of the main thread (bpftrace, root)
+├── freeze-probe.sh     launcher: waits for the process, runs the probe, exits with it
+└── freeze.bt           the bpftrace program
 tests/                  test suite and mocks
 ```
 
@@ -372,7 +408,7 @@ missing, rather than failing halfway through a collection.
 ## Tests
 
 ```bash
-./tests/run-tests.sh          # 204 tests, about a minute
+./tests/run-tests.sh          # 224 tests, about two minutes
 ./tests/run-tests.sh -v amd   # filter, show output of failures
 ```
 
@@ -427,6 +463,15 @@ back empty — attributing nothing. This uses `nvidia-smi -q -d PIDS`, which
 reports both families with an explicit type; `--procs compute` keeps whatever
 has a compute context (`C`, and also `C+G` — a game using CUDA and video at
 once) and reproduces the `--query-compute-apps` slice.
+
+## In practice
+
+The threads CSV, `-P`, the nouveau backend and the probe were written while
+chasing ~3 s freezes in Dota 2 on a Ryzen laptop. The cause turned out to be
+the firmware leaving CPU 0's TSC seconds behind the other cores, made frequent
+by the kernel's amd-pstate preferred-core ranking. The whole investigation,
+with the data from each tool, is in
+[ValveSoftware/Dota-2#3558](https://github.com/ValveSoftware/Dota-2/issues/3558).
 
 ## Changelog
 

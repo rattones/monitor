@@ -57,6 +57,8 @@ actually does not expose. The values live in
 | `mocks/gpu-profiles.sh` | the data of each hardware profile |
 | `mocks/bin/nvidia-smi` | reproduces `-L`, `--query-gpu` and `-q -d PIDS` in the real binary's exact format |
 | `mocks/bin/lspci` | the PCI class line used for the card name |
+| `mocks/bin/perf` | fakes `perf record` (for `-P`) and `perf script` (for `tools/perf-window.sh`) |
+| `mocks/bin/bpftrace` | fakes the probe's `bpftrace`: `--dry-run`, and a run that prints a canned output until INT/TERM |
 | `mocks/make-sysfs.sh` | builds a profile's fake `/sys/class/drm` tree |
 
 Details in [mocks/README.md](mocks/README.md). The variables that control them:

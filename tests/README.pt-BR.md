@@ -54,6 +54,8 @@ de fato não expõe. Os valores ficam em [`mocks/gpu-profiles.sh`](mocks/gpu-pro
 | `mocks/gpu-profiles.sh` | os dados de cada perfil de hardware |
 | `mocks/bin/nvidia-smi` | reproduz `-L`, `--query-gpu` e `-q -d PIDS` no formato exato do binário real |
 | `mocks/bin/lspci` | a linha de classe PCI usada para o nome da placa |
+| `mocks/bin/perf` | simula o `perf record` (do `-P`) e o `perf script` (do `tools/perf-window.sh`) |
+| `mocks/bin/bpftrace` | simula o `bpftrace` da sonda: `--dry-run` e uma execução que imprime uma saída pronta até receber INT/TERM |
 | `mocks/make-sysfs.sh` | monta a árvore `/sys/class/drm` falsa de um perfil |
 
 Detalhes dos mocks em [mocks/README.pt-BR.md](mocks/README.pt-BR.md).

@@ -12,6 +12,7 @@ since there is no Intel GPU on the development machine.
 | `bin/nvidia-smi` | fakes `-L`, `--query-gpu` and `-q -d PIDS` |
 | `bin/lspci` | the PCI class line used to name the card |
 | `bin/perf` | fakes `perf record` (for `-P`) and `perf script` (for `tools/perf-window.sh`) |
+| `bin/bpftrace` | fakes `bpftrace` for `probe/freeze-probe.sh`: `--dry-run`, and a run that prints a canned output until INT/TERM |
 | `make-sysfs.sh` | builds a fake `/sys/class/drm` tree for a profile |
 
 ## The point: which files exist, not just which values
@@ -58,6 +59,11 @@ and checking that conversion is the test's job.
 | `MONITOR_PROC_ROOT` | `/proc` root the `sys` collector and `-P` read |
 | `MOCK_PERF_SCRIPT` | file `perf script` prints (a captured real output) |
 | `MOCK_PERF_LOG` | where `perf script` writes its arguments, to check `--time` |
+| `MOCK_BPFTRACE_OUT` | file the fake `bpftrace` prints (output in `freeze.bt` format) |
+| `MOCK_BPFTRACE_LOG` | where the fake `bpftrace` writes its arguments |
+| `MOCK_BPFTRACE_FAIL` | makes `--dry-run` fail with this message |
+| `FREEZE_PROBE_PROC` | `/proc` root `freeze-probe.sh` reads (comm, task/, maps, fdinfo, fd) |
+| `FREEZE_PROBE_ALLOW_USER` | `1` lets `freeze-probe.sh` run without root (tests only) |
 
 `MONITOR_DRM_ROOT` is the injection point that makes the sysfs backends
 testable. It is defined in `lib/backend.sh` and defaults to `/sys/class/drm`.

@@ -73,6 +73,10 @@ The output is in Portuguese. Each freeze block contains:
   where the code omits frame pointers.
 - `profile:hz:99` sampling misses freezes shorter than ~10 ms. That doesn't
   matter for thresholds in the hundreds of ms.
+- **Known gap:** on kernel 7.0 the `sched_waking` capture ("who woke it") worked
+  for futex waits but came back empty for every epoll wait. The reason is not
+  known yet. For epoll, the `primeiro_evento` line and the fd table still tell
+  which eventfd fired.
 
 ## Files
 
