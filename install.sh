@@ -58,7 +58,8 @@ Usage: ${0##*/} [options]
 
 Where things go:
   <prefix>/bin/$NAME          the command
-  <prefix>/bin/$PROBE    the freeze probe (run it with sudo, only when needed)
+  <prefix>/bin/$PROBE     the freeze probe, for any program (optional;
+                                runs only when called with sudo)
   <prefix>/lib/$NAME/         monitor.sh, lib/ and probe/
 
 The CSVs go to \$HOME/.monitor/log of whoever runs the command, and are
@@ -217,7 +218,7 @@ chmod 0755 "$PROBE_CMD" || die "could not make $PROBE_CMD executable"
 # --- resultado -------------------------------------------------------------
 
 info "installed: $CMD"
-info "installed: $PROBE_CMD  (freeze probe - run with sudo, only when needed)"
+info "installed: $PROBE_CMD"
 if [[ "$MODE" == link ]]; then
   info "           (--link mode: uses $SRC_DIR directly)"
 else
@@ -241,5 +242,23 @@ info "logs in: \$HOME/.monitor/log  (override with MONITOR_LOG_DIR)"
 info ""
 info "test with:  $NAME --version"
 
-info "freeze probe: $probe_run --check   (once, to validate on this kernel)"
-info "              $probe_run -n NAME   (before the program starts; exits with it)"
+info ""
+info "freeze probe (optional): what a program's main thread waits for when it"
+info "freezes. Works with any program; needs root only while it runs."
+info "  run as:  $probe_run <option>"
+info "    --check       validate it on this kernel (do this once)"
+info "    -n NAME       wait for a program by process name; exits with it"
+info "    -f PATTERN    ... or by a piece of its command line (Proton/Wine, scripts)"
+info "    -p PID        attach to a process that is already running"
+info "  all options:  $PROBE_AS --help"
+if [[ "$PROBE_AS" != "$PROBE" ]]; then
+  # Instalado fora do secure_path: sem isto, a pessoa tenta "sudo freeze-probe"
+  # e leva um "comando nao encontrado" sem entender por que.
+  info "  (sudo does not search $BIN_DIR, hence the full path;"
+  info "   sudo ./install.sh --system makes plain \"sudo $PROBE\" work)"
+fi
+# A sonda precisa do bpftrace; o monitor nao. Avisa ja, em vez de na primeira
+# vez que a pessoa precisar dela.
+if ! command -v bpftrace >/dev/null 2>&1; then
+  info "  warning: bpftrace not found - the probe needs it (sudo apt install bpftrace)"
+fi

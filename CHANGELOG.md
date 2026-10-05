@@ -18,8 +18,13 @@ one printed by `monitor --version`.
   longer than the kernel's 15-character `comm` is matched by its first 15, with
   a notice. The output file name is sanitized from the process name, and docs
   and messages talk about the program instead of the game.
+- `install.sh` messages about the probe: after installing, a block with the
+  command to run (`sudo <path> <option>`), the `--check`, `-n`, `-f` and `-p`
+  options, why the full path is needed when the install isn't in sudo's
+  `secure_path`, and a warning when `bpftrace` is missing. `--help` describes
+  the probe as optional and for any program.
 - INSTALL, README and the probe README: every example names its target.
-- 6 new tests (245 in total).
+- 8 new tests (247 in total).
 
 ## [3.6] — 2026-10-05
 

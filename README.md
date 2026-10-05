@@ -419,7 +419,7 @@ missing, rather than failing halfway through a collection.
 ## Tests
 
 ```bash
-./tests/run-tests.sh          # 245 tests, about two minutes
+./tests/run-tests.sh          # 247 tests, about two minutes
 ./tests/run-tests.sh -v amd   # filter, show output of failures
 ```
 

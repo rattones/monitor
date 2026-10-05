@@ -19,8 +19,13 @@ Todas as mudanças relevantes do projeto. O formato segue o
   comparado pelos 15 primeiros, com aviso. O nome do arquivo de saída é limpo a
   partir do nome do processo, e a documentação e as mensagens falam do programa
   em vez do jogo.
+- Mensagens do `install.sh` sobre a sonda: depois de instalar, um bloco com o
+  comando a usar (`sudo <caminho> <opção>`), as opções `--check`, `-n`, `-f` e
+  `-p`, por que é preciso o caminho completo quando a instalação não está no
+  `secure_path` do sudo, e um aviso quando falta o `bpftrace`. O `--help`
+  descreve a sonda como opcional e para qualquer programa.
 - INSTALL, README e README da sonda: todo exemplo diz qual é o alvo.
-- 6 testes novos (245 no total).
+- 8 testes novos (247 no total).
 
 ## [3.6] — 2026-10-05
 

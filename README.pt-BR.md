@@ -427,7 +427,7 @@ que falta, em vez de falhar no meio de uma coleta.
 ## Testes
 
 ```bash
-./tests/run-tests.sh          # 245 testes, cerca de dois minutos
+./tests/run-tests.sh          # 247 testes, cerca de dois minutos
 ./tests/run-tests.sh -v amd   # filtra e mostra a saída das falhas
 ```
 

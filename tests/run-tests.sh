@@ -1167,7 +1167,10 @@ eq       "install: instala sem erro"            "$rc" "0" "$out"
 eq       "install: comando monitor"             "$([[ -x "$pfx/bin/monitor" ]] && echo sim)" "sim" "$out"
 eq       "install: comando freeze-probe"        "$([[ -x "$pfx/bin/freeze-probe" ]] && echo sim)" "sim" "$out"
 eq       "install: copia probe/"                "$(ls "$pfx/lib/monitor/probe" 2>/dev/null | tr '\n' ' ')" "freeze-probe.sh freeze.bt " "$out"
-contains "install: mostra como rodar a sonda"   "$out" "sudo $pfx/bin/freeze-probe --check"
+contains "install: mostra como rodar a sonda"   "$out" "run as:  sudo $pfx/bin/freeze-probe <option>"
+contains "install: lista as formas de alvo"     "$out" "-f PATTERN    ... or by a piece of its command line"
+# Fora do secure_path do sudo: explica por que o caminho completo.
+contains "install: explica o caminho com sudo"  "$out" "sudo does not search $pfx/bin, hence the full path"
 eq       "install: sonda na versao do monitor"  "$("$pfx/bin/freeze-probe" -V 2>&1)" "freeze-probe (monitor $ver)"
 # Fora do secure_path do sudo (aqui, um prefixo qualquer), a ajuda e o erro de
 # root mostram o caminho completo, que e o que funciona com sudo.
