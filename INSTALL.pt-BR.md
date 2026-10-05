@@ -57,11 +57,13 @@ quebra nada.
 
 O `freeze-probe` é instalado junto com o monitor, mas estar instalado não dá
 privilégio nenhum: ele só roda quando você o chama com `sudo`, quando achar
-necessário. Precisa do `bpftrace` (`sudo apt install bpftrace`) e de kernel com
-BTF; o monitor não precisa. O sudo procura comandos no `secure_path` dele, não
-no seu `PATH`: instalado em `~/.local`, rode `sudo ~/.local/bin/freeze-probe`;
-com `--system`, `sudo freeze-probe` funciona direto. O instalador mostra a linha
-certa. Ver [probe/README.pt-BR.md](probe/README.pt-BR.md).
+necessário. Serve para qualquer programa: escolha o alvo com `-n NOME`,
+`-f PADRÃO` (um trecho da linha de comando) ou `-p PID`. Precisa do `bpftrace`
+(`sudo apt install bpftrace`) e de kernel com BTF; o monitor não precisa. O
+sudo procura comandos no `secure_path` dele, não no seu `PATH`: instalado em
+`~/.local`, rode `sudo ~/.local/bin/freeze-probe -n NOME`; com `--system`,
+`sudo freeze-probe -n NOME` funciona direto. O instalador mostra a linha certa.
+Ver [probe/README.pt-BR.md](probe/README.pt-BR.md).
 
 O comando em `bin/` é um lançador que aponta `MONITOR_LIB_DIR` para o `lib/`
 instalado e faz `exec` no script real. O `exec` importa: sem ele sobraria um

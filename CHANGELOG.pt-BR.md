@@ -6,6 +6,22 @@ Todas as mudanças relevantes do projeto. O formato segue o
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/), e a versão é a que
 `monitor --version` imprime.
 
+## [Não lançado]
+
+### Mudado
+
+- **O `freeze-probe` serve para qualquer programa, não só o Dota 2.** O alvo
+  agora é obrigatório (sem o padrão `dota2` escondido) e é escolhido com um
+  entre `-n NOME` (nome do processo, como no `ps -o comm`), `-f PADRÃO` (novo:
+  um trecho da linha de comando, para programas abertos por wrappers como
+  Proton/Wine ou scripts; escolhe o mais antigo que casar e ignora a própria
+  sonda) e `-p PID`. Um nome maior que os 15 caracteres do `comm` do kernel é
+  comparado pelos 15 primeiros, com aviso. O nome do arquivo de saída é limpo a
+  partir do nome do processo, e a documentação e as mensagens falam do programa
+  em vez do jogo.
+- INSTALL, README e README da sonda: todo exemplo diz qual é o alvo.
+- 6 testes novos (245 no total).
+
 ## [3.6] — 2026-10-05
 
 ### Adicionado

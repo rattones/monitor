@@ -242,4 +242,4 @@ info ""
 info "test with:  $NAME --version"
 
 info "freeze probe: $probe_run --check   (once, to validate on this kernel)"
-info "              $probe_run           (before the game; exits with it)"
+info "              $probe_run -n NAME   (before the program starts; exits with it)"

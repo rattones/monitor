@@ -1,5 +1,6 @@
 /*
- * freeze.bt - sonda das travadas da thread principal de um jogo.
+ * freeze.bt - sonda das travadas da thread principal de um programa (jogo ou
+ * aplicativo).
  *
  * Chamado pelo freeze-probe.sh:  bpftrace freeze.bt <pid> <limiar_ms>
  *
@@ -16,11 +17,11 @@
  *   - quem a acordou (sched_waking): processo, thread, pilha do kernel (diz o
  *     mecanismo: futex_wake, ep_poll_callback <- eventfd/socket, hrtimer =
  *     timeout) e a pilha de usuario do acordador;
- *   - FUTEX_WAKE de outra thread do jogo no MESMO endereco em que a principal
+ *   - FUTEX_WAKE de outra thread do processo no MESMO endereco em que a principal
  *     dorme (prova a dependencia direta);
  *   - no epoll: o cookie (data) do primeiro evento pronto - o freeze-probe.sh
  *     casa com o fdinfo para dizer qual descritor era;
- *   - quais threads do jogo rodaram durante a travada (amostras a 99 Hz, com
+ *   - quais threads do processo rodaram durante a travada (amostras a 99 Hz, com
  *     pilha) e quais chamadas de sistema fizeram.
  *
  * Estado: so a thread principal e rastreada nas esperas, mas o estado dela e
@@ -100,7 +101,7 @@ tracepoint:syscalls:sys_exit_futex
     }
 }
 
-/* Outra thread do jogo acordando o endereco em que a principal dorme */
+/* Outra thread do processo acordando o endereco em que a principal dorme */
 tracepoint:syscalls:sys_enter_futex
 /pid == $1 && tid != $1/
 {
@@ -236,7 +237,7 @@ interval:ms:50
     }
 }
 
-/* ----------------------------- o que o jogo faz enquanto a principal para */
+/* ------------------------ o que o processo faz enquanto a principal para */
 
 profile:hz:99
 /pid == $1/
@@ -288,7 +289,7 @@ interval:ms:10
         } else {
             printf("--- acordada por: (nenhum sched_waking registrado)\n");
         }
-        printf("--- threads do jogo rodando durante a travada (amostras a 99 Hz: tid, nome, cpu, pilha):\n");
+        printf("--- threads do processo rodando durante a travada (amostras a 99 Hz: tid, nome, cpu, pilha):\n");
         print(@spin);
         clear(@spin);
         printf("--- chamadas de sistema das outras threads durante a travada (tid, nome, nr):\n");

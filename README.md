@@ -26,7 +26,7 @@ same clock so the CSVs join on the timestamp. No daemon, no dependencies beyond
 bash and awk, and the files are flushed every sample so you can plot them while
 collection is still running.
 
-For a game that freezes while the GPU sits idle, the repository also has a
+For a program (a game, say) that freezes while the GPU sits idle, the repository also has a
 separate, root-only bpftrace probe of the main thread ([`probe/`](#freeze-probe-probe-root)).
 
 ## Install
@@ -328,16 +328,20 @@ own: the monitor keeps running unprivileged and unchanged, and both write to
 
 ```bash
 sudo freeze-probe --check   # once: validate the program on this kernel
-sudo freeze-probe           # waits for dota2 (-n NAME, -p PID), exits with it
+sudo freeze-probe -n dota2  # waits for the process, exits with it (any program: -n, -f, -p)
 ```
 
 `install.sh` installs it next to `monitor` as the `freeze-probe` command.
 Installing grants nothing: it only runs when you call it with `sudo`. sudo
 looks up commands in its own `secure_path`, not your `PATH`, so with the default
-`~/.local` install use the full path (`sudo ~/.local/bin/freeze-probe`). The
+`~/.local` install use the full path (`sudo ~/.local/bin/freeze-probe -n NAME`). The
 installer prints the exact line, and `sudo ./install.sh --system` makes plain
 `sudo freeze-probe` work. From a clone without installing:
 `sudo ./probe/freeze-probe.sh`.
+
+It works with any program. Pick the target with `-n NAME` (process name, as in
+`ps -o comm`), `-f PATTERN` (a piece of the command line, for programs started
+through wrappers such as Proton/Wine or scripts) or `-p PID`.
 
 For every main-thread stop longer than the threshold (`-t`, 500 ms by default),
 whether asleep in a `futex`, in `epoll_wait`, or making no system call at all,
@@ -415,7 +419,7 @@ missing, rather than failing halfway through a collection.
 ## Tests
 
 ```bash
-./tests/run-tests.sh          # 239 tests, about two minutes
+./tests/run-tests.sh          # 245 tests, about two minutes
 ./tests/run-tests.sh -v amd   # filter, show output of failures
 ```
 

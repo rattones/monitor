@@ -1126,6 +1126,33 @@ out=$(PATH="$MOCK_DIR/bin:$PATH" FREEZE_PROBE_ALLOW_USER=1 FREEZE_PROBE_PROC="$f
       SUDO_USER="$(id -un)" "$FP" -p 999999 -o "$TMP/fplog" 2>&1)
 contains "probe: PID inexistente" "$out" "o processo 999999 nao existe"
 
+# O alvo e obrigatorio e unico: sem padrao escondido.
+out=$(PATH="$MOCK_DIR/bin:$PATH" FREEZE_PROBE_ALLOW_USER=1 "$FP" 2>&1)
+contains "probe: exige um alvo"        "$out" "diga qual processo acompanhar: -n NOME, -f PADRAO ou -p PID"
+out=$(PATH="$MOCK_DIR/bin:$PATH" FREEZE_PROBE_ALLOW_USER=1 "$FP" -n x -p 1 2>&1)
+contains "probe: um alvo so"           "$out" "use so um de -n, -f e -p"
+
+# -f: acha um processo de verdade pela linha de comando e ignora a propria sonda
+# (cuja linha de comando tambem contem o padrao). O "sleep" com um argumento
+# unico faz o papel do programa.
+if runs "probe: -f acha pela linha de comando"; then
+  sleep 3.4321 & app=$!
+  fake_game_proc "$app"
+  rm -f "$TMP"/fplog/*-probe.txt
+  err=$(run_fp -f 'sleep 3.4321' -o "$TMP/fplog" 2>&1)
+  wait "$app" 2>/dev/null
+  contains "probe: -f acha pela linha de comando" "$(cat "$TMP/bpf.args" 2>/dev/null)" "freeze.bt $app 500"
+  contains "probe: -f avisa o que espera"         "$err" "esperando um processo com \"sleep 3.4321\""
+fi
+
+# Nome com mais de 15 caracteres: o kernel corta o comm, entao compara pelos 15.
+out=$(PATH="$MOCK_DIR/bin:$PATH" FREEZE_PROBE_ALLOW_USER=1 FREEZE_PROBE_PROC="$fpproc" \
+      SUDO_USER="$(id -un)" "$FP" -n um_nome_bem_comprido -p 999999 -o "$TMP/fplog" 2>&1)
+contains "probe: um alvo so (nome longo e PID)" "$out" "use so um de -n, -f e -p"
+out=$(PATH="$MOCK_DIR/bin:$PATH" FREEZE_PROBE_ALLOW_USER=1 timeout 1 "$FP" -n um_nome_bem_comprido \
+      -o "$TMP/fplog" 2>&1 < /dev/null)
+contains "probe: nome longo vira 15 caracteres" "$out" "comparando com \"um_nome_bem_com\""
+
 # ===========================================================================
 group "install.sh"
 # ===========================================================================
@@ -1144,7 +1171,7 @@ contains "install: mostra como rodar a sonda"   "$out" "sudo $pfx/bin/freeze-pro
 eq       "install: sonda na versao do monitor"  "$("$pfx/bin/freeze-probe" -V 2>&1)" "freeze-probe (monitor $ver)"
 # Fora do secure_path do sudo (aqui, um prefixo qualquer), a ajuda e o erro de
 # root mostram o caminho completo, que e o que funciona com sudo.
-contains "install: ajuda com o caminho instalado" "$("$pfx/bin/freeze-probe" -h 2>&1)" "sudo $pfx/bin/freeze-probe -n outro_jogo"
+contains "install: ajuda com o caminho instalado" "$("$pfx/bin/freeze-probe" -h 2>&1)" "sudo $pfx/bin/freeze-probe -p 12345"
 if (( EUID != 0 )); then
   contains "install: sonda instalada exige root" "$("$pfx/bin/freeze-probe" -p 1 2>&1)" \
            "precisa de root: sudo $pfx/bin/freeze-probe -p 1"

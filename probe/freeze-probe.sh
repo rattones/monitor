@@ -6,19 +6,26 @@
 # como usuario, pelo hook do GameMode, exatamente como antes. So este script
 # precisa de root, porque carrega um programa eBPF no kernel.
 #
-# Espera o jogo abrir, prende a sonda (freeze.bt) ao processo e grava, a cada
-# travada da thread principal acima do limiar, um bloco com: o timeout que ela
-# pediu ao kernel, a pilha em que dormiu, quem a acordou (e por qual mecanismo),
-# quem rodou durante a parada e o descritor do epoll que disparou. Sai sozinho
-# quando o jogo fecha.
+# Serve para qualquer programa (jogo ou aplicativo): espera o processo escolhido
+# abrir, prende a sonda (freeze.bt) a ele e grava, a cada travada da thread
+# principal acima do limiar, um bloco com: o timeout que ela pediu ao kernel, a
+# pilha em que dormiu, quem a acordou (e por qual mecanismo), quem rodou durante
+# a parada e o descritor do epoll que disparou. Sai sozinho quando o programa
+# fecha. O alvo e obrigatorio: -n, -f ou -p.
 #
 # Uso:
-#   sudo ./probe/freeze-probe.sh                 # espera o dota2 e grava
-#   sudo ./probe/freeze-probe.sh -n outro_jogo   # outro processo (nome exato)
-#   sudo ./probe/freeze-probe.sh -p 12345        # um PID que ja esta rodando
-#   sudo ./probe/freeze-probe.sh -t 1000         # so travadas >= 1000 ms
-#   sudo ./probe/freeze-probe.sh --check         # so valida o programa e sai
-#   ./probe/freeze-probe.sh -V                 # versao (a mesma do monitor)
+#   sudo ./probe/freeze-probe.sh -n dota2          # pelo nome do processo (exato)
+#   sudo ./probe/freeze-probe.sh -f 'Game.exe'     # por um trecho da linha de comando
+#   sudo ./probe/freeze-probe.sh -p 12345          # um PID que ja esta rodando
+#   sudo ./probe/freeze-probe.sh -n app -t 1000    # so travadas >= 1000 ms
+#   sudo ./probe/freeze-probe.sh --check           # so valida o programa e sai
+#   ./probe/freeze-probe.sh -V                   # versao (a mesma do monitor)
+#
+# -n compara com o nome do processo, que o kernel corta em 15 caracteres (o
+# mesmo do "ps -o comm"); um nome mais longo e comparado pelos 15 primeiros. -f
+# procura na linha de comando inteira, o caminho para programas lancados por
+# wrappers (Proton/Wine, scripts) ou com nome generico; escolhe o processo mais
+# antigo que casar, ignorando a propria sonda.
 #
 # Instalado pelo install.sh do monitor, vira o comando freeze-probe: os exemplos
 # acima valem com "sudo freeze-probe" (ou o caminho completo, se o diretorio
@@ -44,7 +51,8 @@ PROC="${FREEZE_PROBE_PROC:-/proc}"
 PROG="${FREEZE_PROBE_CMD:-$0}"
 ARGS=("$@")
 
-NAME="dota2"
+NAME=""
+MATCH=""
 PID=""
 THR_MS=500
 OUT_DIR=""
@@ -71,6 +79,7 @@ version() {
 while (( $# )); do
   case "$1" in
     -n|--name)    NAME="${2:?}"; shift 2 ;;
+    -f|--match)   MATCH="${2:?}"; shift 2 ;;
     -p|--pid)     PID="${2:?}"; shift 2 ;;
     -t|--thresh)  THR_MS="${2:?}"; shift 2 ;;
     -o|--out)     OUT_DIR="${2:?}"; shift 2 ;;
@@ -83,6 +92,18 @@ done
 
 [[ "$THR_MS" =~ ^[0-9]+$ ]] && (( THR_MS >= 50 )) || die "limiar invalido: $THR_MS (ms, minimo 50)"
 [[ -z "$PID" || "$PID" =~ ^[0-9]+$ ]] || die "PID invalido: $PID"
+# Um alvo, e so um (o --check nao precisa de nenhum): sem padrao escondido, a
+# sonda nao fica esperando um programa que a pessoa nem vai abrir.
+targets=$(( ${#NAME} > 0 )); targets=$(( targets + (${#MATCH} > 0) + (${#PID} > 0) ))
+if (( ! CHECK )); then
+  (( targets > 0 )) || die "diga qual processo acompanhar: -n NOME, -f PADRAO ou -p PID (veja -h)"
+  (( targets == 1 )) || die "use so um de -n, -f e -p"
+fi
+# O kernel guarda so 15 caracteres do nome (comm); com mais, o -x nunca casaria.
+if (( ${#NAME} > 15 )); then
+  info "aviso: o kernel guarda so 15 caracteres do nome; comparando com \"${NAME:0:15}\" (para o nome inteiro, use -f)"
+  NAME="${NAME:0:15}"
+fi
 (( EUID == 0 )) || [[ "${FREEZE_PROBE_ALLOW_USER:-}" == 1 ]] || die "precisa de root: sudo $PROG ${ARGS[*]}"
 command -v bpftrace >/dev/null 2>&1 || die "bpftrace nao encontrado (sudo apt install bpftrace)"
 [[ -r "$BT" ]] || die "nao achei $BT"
@@ -106,19 +127,47 @@ OUT_DIR="${OUT_DIR:-$RUN_HOME/.monitor/log}"
 install -d -o "$RUN_USER" -g "$(id -gn "$RUN_USER")" "$OUT_DIR" || die "nao consegui criar $OUT_DIR"
 
 # --- espera o processo ------------------------------------------------------
+# Por trecho da linha de comando: o pgrep -f tambem acha a propria sonda, o sudo
+# que a chamou e o bpftrace (as linhas de comando deles contem o padrao), entao
+# eles ficam de fora. Entre os que sobram, o mais antigo: o programa principal
+# nasce antes dos filhos que repetem a mesma linha de comando.
+find_by_cmdline() {
+  local p best="" best_age=-1 age cmd
+  for p in $(pgrep -f -- "$MATCH" 2>/dev/null); do
+    [[ "$p" == "$$" || "$p" == "$PPID" ]] && continue
+    cmd=$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null) || continue
+    [[ "$cmd" == *freeze-probe* || "$cmd" == *bpftrace* ]] && continue
+    age=$(ps -o etimes= -p "$p" 2>/dev/null | tr -d ' ')
+    [[ -n "$age" ]] || continue
+    (( age > best_age )) && { best="$p"; best_age="$age"; }
+  done
+  [[ -n "$best" ]] && printf '%s\n' "$best"
+}
+
 if [[ -z "$PID" ]]; then
-  info "esperando o processo \"$NAME\" (Ctrl+C cancela)..."
+  if [[ -n "$MATCH" ]]; then
+    info "esperando um processo com \"$MATCH\" na linha de comando (Ctrl+C cancela)..."
+  else
+    info "esperando o processo \"$NAME\" (Ctrl+C cancela)..."
+  fi
   while :; do
-    # O mais antigo com esse nome e o processo do jogo; filhos com o mesmo
-    # nome, se houver, vem depois.
-    PID="$(pgrep -o -x "$NAME" 2>/dev/null)" && break
+    if [[ -n "$MATCH" ]]; then
+      PID="$(find_by_cmdline)" && [[ -n "$PID" ]] && break
+    else
+      # O mais antigo com esse nome e o processo principal; filhos com o mesmo
+      # nome, se houver, vem depois.
+      PID="$(pgrep -o -x "$NAME" 2>/dev/null)" && break
+    fi
     sleep 2
   done
 fi
 [[ -d "$PROC/$PID" ]] || die "o processo $PID nao existe"
-NAME="$(cat "$PROC/$PID/comm" 2>/dev/null || echo "$NAME")"
+NAME="$(cat "$PROC/$PID/comm" 2>/dev/null || echo "${NAME:-pid$PID}")"
 
-OUT="$OUT_DIR/${NAME}-$(date +%Y%m%d-%H%M%S)-probe.txt"
+# O nome vem do programa (comm), que pode ter espaco ou barra: so letras,
+# digitos, ponto, hifen e sublinhado entram no nome do arquivo.
+SAFE_NAME="$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9._-' '_')"
+OUT="$OUT_DIR/${SAFE_NAME}-$(date +%Y%m%d-%H%M%S)-probe.txt"
 : > "$OUT" && chown "$RUN_USER:$(id -gn "$RUN_USER")" "$OUT" || die "nao consegui criar $OUT"
 info "processo $PID ($NAME); gravando em $OUT"
 
@@ -136,8 +185,8 @@ info "processo $PID ($NAME); gravando em $OUT"
 # O epoll devolve so o cookie "data" que o programa registrou. O fdinfo do
 # descritor do epoll lista, para cada fd vigiado, o mesmo cookie: com isso a
 # linha "primeiro_evento" vira "era o fd N, que e um eventfd/socket/...".
-# Lido como root na hora, com o jogo vivo, uma vez por epfd: o conjunto
-# vigiado da principal nao muda durante a partida.
+# Lido como root na hora, com o processo vivo, uma vez por epfd: o conjunto
+# vigiado da principal nao muda durante a execucao.
 declare -A EP_SEEN=()
 dump_epoll() {
   local epfd="$1" tag="$2" line tfd tgt
@@ -153,11 +202,12 @@ dump_epoll() {
 }
 
 # --- bibliotecas do processo ----------------------------------------------------
-# As bibliotecas do jogo nao tem simbolos de depuracao, entao o bpftrace imprime
-# boa parte da pilha como "0x7ace46bc165b ([unknown])". Com o mapa de memoria do
-# processo esses enderecos viram "libanimationsystem.so+0x12b65b". O mapa so
-# pode ser lido com o jogo vivo, e bibliotecas sao carregadas ao longo da
-# partida (a do mapa so entra ao carregar a partida): e regravado a cada 30 s e
+# Muitos programas vem sem simbolos de depuracao (as bibliotecas do Dota 2, por
+# exemplo), entao o bpftrace imprime boa parte da pilha como
+# "0x7ace46bc165b ([unknown])". Com o mapa de memoria do processo esses enderecos
+# viram "libanimationsystem.so+0x12b65b". O mapa so pode ser lido com o processo
+# vivo, e bibliotecas sao carregadas ao longo da execucao (num jogo, a do mapa
+# so entra ao carregar a partida): e regravado a cada 30 s e
 # a cada travada. So os trechos executaveis com arquivo interessam.
 MAPS="${OUT%.txt}.maps"
 snapshot_maps() {
@@ -234,7 +284,7 @@ stop_probe() {
 }
 trap 'info "interrompido; fechando a sonda..."; stop_probe' INT TERM
 
-# Acompanha o jogo: quando ele fecha, encerra a sonda (o END imprime o resumo).
+# Acompanha o processo: quando ele fecha, encerra a sonda (o END imprime o resumo).
 while kill -0 "$PID" 2>/dev/null && kill -0 "$PIPE_PID" 2>/dev/null; do
   sleep 1
   (( ++tick % 30 == 0 )) && snapshot_maps

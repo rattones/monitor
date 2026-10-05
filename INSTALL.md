@@ -57,11 +57,13 @@ anything.
 
 `freeze-probe` is installed with the monitor but grants nothing by being
 installed: it runs only when you call it with `sudo`, when you decide you need
-it. It needs `bpftrace` (`sudo apt install bpftrace`) and kernel BTF; the
-monitor itself doesn't. sudo looks up commands in its `secure_path`, not your
-`PATH`: with a `~/.local` install run `sudo ~/.local/bin/freeze-probe`; with
-`--system`, `sudo freeze-probe` works as is. The installer prints the right
-line. See [probe/README.md](probe/README.md).
+it. It works with any program: choose the target with `-n NAME`, `-f PATTERN`
+(a piece of the command line) or `-p PID`. It needs `bpftrace`
+(`sudo apt install bpftrace`) and kernel BTF; the monitor itself doesn't. sudo
+looks up commands in its `secure_path`, not your `PATH`: with a `~/.local`
+install run `sudo ~/.local/bin/freeze-probe -n NAME`; with `--system`,
+`sudo freeze-probe -n NAME` works as is. The installer prints the right line.
+See [probe/README.md](probe/README.md).
 
 The command in `bin/` is a launcher that points `MONITOR_LIB_DIR` at the
 installed `lib/` and `exec`s the real script. The `exec` matters: without it an

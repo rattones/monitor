@@ -13,27 +13,33 @@ timestamps line up.
 
 ```bash
 sudo freeze-probe --check    # once: validates the program on your kernel
-sudo freeze-probe            # before playing: waits for dota2 to start
+sudo freeze-probe -n dota2   # waits for the process to start (any program)
+sudo freeze-probe -f Game.exe   # or by a piece of its command line
+sudo freeze-probe -p 12345   # or a process that is already running
 freeze-probe -V              # version (the monitor's; no root needed)
 ```
 
 `freeze-probe` is installed by the monitor's `install.sh`, next to `monitor`.
 With the default `~/.local` install, sudo doesn't search your `PATH`: use
-`sudo ~/.local/bin/freeze-probe` (the installer prints the exact line), or
+`sudo ~/.local/bin/freeze-probe -n NAME` (the installer prints the exact line), or
 install with `sudo ./install.sh --system`. Straight from a clone:
 `sudo ./probe/freeze-probe.sh`.
 
-Then play. The probe attaches when the game starts and exits when it closes.
-Output: `~/.monitor/log/dota2-YYYYMMDD-HHMMSS-probe.txt`, owned by you.
+Then use the program. The probe attaches when it starts and exits when it
+closes. Output: `~/.monitor/log/<name>-YYYYMMDD-HHMMSS-probe.txt` (the
+process name), owned by you.
 
 | Option | Effect |
 |---|---|
-| `-n NAME` | exact process name (default `dota2`) |
+| `-n NAME` | process name, exact (as in `ps -o comm`). The kernel keeps only 15 characters, so a longer name is matched by its first 15 |
+| `-f PATTERN` | a piece of the command line: for programs started through wrappers (Proton/Wine, scripts) or with a generic name. Picks the oldest match and ignores the probe itself |
 | `-p PID` | attach to a process that is already running |
 | `-t MS` | freeze threshold in ms (default 500, minimum 50) |
 | `-o DIR` | output directory (default: `~/.monitor/log` of the sudo caller) |
 | `--check` | only compile and attach the probes (`bpftrace --dry-run`), then exit |
 | `-V` | version (the monitor's), no root needed |
+
+Exactly one of `-n`, `-f` and `-p` is required (except with `--check` and `-V`).
 
 Requires `bpftrace` (tested with 0.25) and a kernel with BTF
 (`/sys/kernel/btf/vmlinux`).
@@ -56,7 +62,7 @@ The output is in Portuguese. Each freeze block contains:
   for (`-1` = none; `-2` = absolute `CLOCK_REALTIME` deadline) and the return
   value (`-110` = `ETIMEDOUT` for futex; `0` = timed out for epoll). This tells
   whether the ~3.2 s cap belongs to the main thread or to what it waits for.
-- **`WAKE_MESMO_ENDERECO`**: another game thread issued `FUTEX_WAKE` on the exact
+- **`WAKE_MESMO_ENDERECO`**: another thread of the process issued `FUTEX_WAKE` on the exact
   address the main thread sleeps on, which proves the direct dependency.
 - **`acordada por`**: who woke the main thread (`sched_waking`). The kernel
   stack shows the mechanism: `futex_wake` (another thread released it),
@@ -66,7 +72,7 @@ The output is in Portuguese. Each freeze block contains:
   epoll. The launcher reads the epoll `fdinfo` live and writes a
   `# epfd=N ...` table mapping each cookie to its fd and target
   (`anon_inode:[eventfd]`, `socket:[...]`, ...).
-- **Game threads running during the freeze**: 99 Hz samples with user stack,
+- **Threads of the process running during the freeze**: 99 Hz samples with user stack,
   thread and CPU. The spinning thread shows up here.
 - **System calls by the other threads**: syscall numbers (`ausyscall NR`
   translates them). A pure spin makes none.
@@ -76,7 +82,7 @@ The output is in Portuguese. Each freeze block contains:
 - Outside freezes, only the **main thread's** futex/epoll calls and syscall
   entries and exits are traced, plus cheap filters on `sched_waking` and the
   profile samples. Everything else records only while a freeze is in progress.
-- The game libraries ship without debug symbols: stacks show library, offset
+- Programs often ship without debug symbols (Dota 2's libraries do): stacks show library, offset
   and the few exported functions (such as `ThreadSpin`). Stacks may be short
   where the code omits frame pointers.
 - `profile:hz:99` sampling misses freezes shorter than ~10 ms. That doesn't
@@ -90,7 +96,7 @@ The output is in Portuguese. Each freeze block contains:
 
 | File | Role |
 |---|---|
-| `freeze-probe.sh` | launcher (bash, root): waits for the process, writes the header, runs bpftrace, maps epoll cookies, exits with the game |
+| `freeze-probe.sh` | launcher (bash, root): waits for the process, writes the header, runs bpftrace, maps epoll cookies, exits with the program |
 | `freeze.bt` | the bpftrace program |
 | `<output>.maps` | written during the session: the process's executable mappings (every 30 s and on each freeze). At the end the launcher uses it to rewrite `0x... ([unknown])` frames as `library.so+0xoffset` |
 

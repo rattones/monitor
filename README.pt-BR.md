@@ -26,7 +26,7 @@ amostrados no mesmo relógio, então os CSVs se juntam pelo timestamp. Sem daemo
 sem dependência além de bash e awk, e com flush a cada amostra — dá para plotar
 enquanto a coleta ainda roda.
 
-Para um jogo que trava com a GPU parada, o repositório tem também uma sonda
+Para um programa (um jogo, por exemplo) que trava com a GPU parada, o repositório tem também uma sonda
 bpftrace da thread principal, separada e só para root
 ([`probe/`](#sonda-de-travadas-probe-root)).
 
@@ -334,16 +334,20 @@ monitor continua como usuário, sem mudança, e os dois gravam em
 
 ```bash
 sudo freeze-probe --check   # uma vez: valida o programa neste kernel
-sudo freeze-probe           # espera o dota2 (-n NOME, -p PID) e sai junto com ele
+sudo freeze-probe -n dota2  # espera o processo e sai junto com ele (qualquer programa: -n, -f, -p)
 ```
 
 O `install.sh` instala a sonda ao lado do `monitor`, como o comando
 `freeze-probe`. Instalar não dá privilégio nenhum: ela só roda quando você a
 chama com `sudo`. O sudo procura comandos no próprio `secure_path`, não no seu
 `PATH`, então na instalação padrão em `~/.local` use o caminho completo
-(`sudo ~/.local/bin/freeze-probe`). O instalador mostra a linha exata, e com
+(`sudo ~/.local/bin/freeze-probe -n NOME`). O instalador mostra a linha exata, e com
 `sudo ./install.sh --system` funciona o `sudo freeze-probe` direto. Do clone,
 sem instalar: `sudo ./probe/freeze-probe.sh`.
+
+Funciona com qualquer programa. O alvo é escolhido com `-n NOME` (nome do
+processo, como no `ps -o comm`), `-f PADRÃO` (um trecho da linha de comando,
+para programas abertos por wrappers como Proton/Wine ou scripts) ou `-p PID`.
 
 Para cada parada da thread principal acima do limiar (`-t`, 500 ms por padrão),
 seja dormindo num `futex`, num `epoll_wait` ou sem fazer chamada de sistema
@@ -423,7 +427,7 @@ que falta, em vez de falhar no meio de uma coleta.
 ## Testes
 
 ```bash
-./tests/run-tests.sh          # 239 testes, cerca de dois minutos
+./tests/run-tests.sh          # 245 testes, cerca de dois minutos
 ./tests/run-tests.sh -v amd   # filtra e mostra a saída das falhas
 ```
 

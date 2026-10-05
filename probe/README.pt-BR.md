@@ -13,28 +13,33 @@ local, para cruzar os horários.
 
 ```bash
 sudo freeze-probe --check    # uma vez: valida o programa no seu kernel
-sudo freeze-probe            # antes de jogar: espera o dota2 abrir
+sudo freeze-probe -n dota2   # espera o processo abrir (qualquer programa)
+sudo freeze-probe -f Game.exe   # ou por um trecho da linha de comando
+sudo freeze-probe -p 12345   # ou um processo que já está rodando
 freeze-probe -V              # versão (a do monitor; não precisa de root)
 ```
 
 O `freeze-probe` é instalado pelo `install.sh` do monitor, ao lado do
 `monitor`. Na instalação padrão em `~/.local`, o sudo não procura no seu
-`PATH`: use `sudo ~/.local/bin/freeze-probe` (o instalador mostra a linha
+`PATH`: use `sudo ~/.local/bin/freeze-probe -n NOME` (o instalador mostra a linha
 exata) ou instale com `sudo ./install.sh --system`. Direto do clone:
 `sudo ./probe/freeze-probe.sh`.
 
-Depois é só jogar. A sonda se prende ao jogo quando ele abre e sai sozinha
-quando ele fecha. O arquivo é
-`~/.monitor/log/dota2-AAAAMMDD-HHMMSS-probe.txt`, com você como dono.
+Depois é só usar o programa. A sonda se prende a ele quando abre e sai sozinha
+quando ele fecha. O arquivo é `~/.monitor/log/<nome>-AAAAMMDD-HHMMSS-probe.txt`
+(o nome do processo), com você como dono.
 
 | Opção | O que faz |
 |---|---|
-| `-n NOME` | nome exato do processo (padrão `dota2`) |
+| `-n NOME` | nome do processo, exato (como no `ps -o comm`). O kernel guarda só 15 caracteres, então um nome maior é comparado pelos 15 primeiros |
+| `-f PADRÃO` | um trecho da linha de comando: para programas abertos por wrappers (Proton/Wine, scripts) ou com nome genérico. Escolhe o mais antigo que casar e ignora a própria sonda |
 | `-p PID` | prende num processo que já está rodando |
 | `-t MS` | limiar da travada em ms (padrão 500, mínimo 50) |
 | `-o DIR` | diretório de saída (padrão `~/.monitor/log` de quem chamou o sudo) |
 | `--check` | só compila e prende as sondas (`bpftrace --dry-run`) e sai |
 | `-V` | versão (a do monitor), não precisa de root |
+
+É obrigatório escolher exatamente um entre `-n`, `-f` e `-p` (exceto com `--check` e `-V`).
 
 Requisitos: `bpftrace` (testado com 0.25), kernel com BTF
 (`/sys/kernel/btf/vmlinux`).
@@ -59,7 +64,7 @@ WAKE_MESMO_ENDERECO ... tid=... comm=GlobPool/1 ...      (se houver)
 --- acordada por: comm=... pid=... tid=...
 --- pilha do kernel de quem acordou:
 --- pilha de usuario de quem acordou:
---- threads do jogo rodando durante a travada (amostras a 99 Hz: tid, nome, cpu, pilha):
+--- threads do processo rodando durante a travada (amostras a 99 Hz: tid, nome, cpu, pilha):
 --- chamadas de sistema das outras threads durante a travada (tid, nome, nr):
 === FIM
 ```
@@ -68,7 +73,7 @@ WAKE_MESMO_ENDERECO ... tid=... comm=GlobPool/1 ...      (se houver)
   (`-1` = sem prazo; `-2` = prazo absoluto em `CLOCK_REALTIME`) e o retorno
   (`-110` = `ETIMEDOUT` no futex; `0` = prazo esgotado no epoll). Diz se o teto
   de ~3,2 s é da principal ou de quem ela espera.
-- **`WAKE_MESMO_ENDERECO`**: outra thread do jogo fez `FUTEX_WAKE` no endereço
+- **`WAKE_MESMO_ENDERECO`**: outra thread do processo fez `FUTEX_WAKE` no endereço
   exato em que a principal dorme. Prova a dependência direta.
 - **acordada por**: quem acordou a principal (`sched_waking`). A pilha do kernel
   mostra o mecanismo: `futex_wake` (outra thread liberou), `ep_poll_callback`
@@ -89,7 +94,7 @@ WAKE_MESMO_ENDERECO ... tid=... comm=GlobPool/1 ...      (se houver)
 - Fora das travadas, só as chamadas `futex`/`epoll` e as entradas e saídas de
   syscall da **thread principal** são seguidas, mais um filtro barato em
   `sched_waking` e nas amostras de perfil. O resto só grava durante uma travada.
-- As bibliotecas do jogo vêm sem símbolos de depuração: as pilhas mostram
+- Programas costumam vir sem símbolos de depuração (as bibliotecas do Dota 2 vêm assim): as pilhas mostram
   biblioteca, deslocamento e as poucas funções exportadas (como `ThreadSpin`).
   Pilhas podem sair curtas onde o código não preserva o frame pointer.
 - A amostragem em `profile:hz:99` fica de fora de travadas mais curtas que
@@ -103,7 +108,7 @@ WAKE_MESMO_ENDERECO ... tid=... comm=GlobPool/1 ...      (se houver)
 
 | Arquivo | Papel |
 |---|---|
-| `freeze-probe.sh` | lançador (bash, root): espera o processo, grava o cabeçalho, roda o bpftrace, traduz o epoll e encerra com o jogo |
+| `freeze-probe.sh` | lançador (bash, root): espera o processo, grava o cabeçalho, roda o bpftrace, traduz o epoll e encerra com o programa |
 | `freeze.bt` | o programa bpftrace |
 | `<saída>.maps` | gerado na partida: trechos executáveis do processo (gravado a cada 30 s e a cada travada). No fim, o lançador usa esse mapa para trocar `0x... ([unknown])` nas pilhas por `biblioteca.so+0xdeslocamento` |
 
