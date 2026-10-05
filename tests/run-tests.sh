@@ -1029,6 +1029,102 @@ fi
 out=$(run_pw "$wbase" 14:10:24)
 contains "perf-window: poucos argumentos" "$out" "uso: perf-window.sh"
 
+
+# ===========================================================================
+group "probe/freeze-probe.sh"
+# ===========================================================================
+
+# A sonda de verdade precisa de root e de um kernel com eBPF; aqui o bpftrace e
+# o mock (imprime uma saida pronta no formato do freeze.bt) e o /proc e falso,
+# so com o que o lancador le: comm, task/ e o fdinfo/fd do epoll. O "jogo" e um
+# sleep de verdade, porque o lancador acompanha o PID com kill -0.
+FP="$ROOT/probe/freeze-probe.sh"
+fpproc="$TMP/fpproc"
+
+# Monta o /proc falso para um PID real.
+fake_game_proc() {
+  local pid="$1" d="$fpproc/$1"
+  mkdir -p "$d/task/$pid" "$d/task/$((pid + 1))" "$d/fdinfo" "$d/fd"
+  echo dota2 > "$d/comm"
+  echo dota2 > "$d/task/$pid/comm"
+  echo "GlobPool/0" > "$d/task/$((pid + 1))/comm"
+  # epfd 7 vigia o fd 12 (eventfd) e o fd 15 (socket); o "data" do fd 12 e o
+  # cookie que aparece no primeiro_evento da saida do mock.
+  printf 'pos:\t0\nflags:\t02\nmnt_id:\t15\nino:\t1057\n' > "$d/fdinfo/7"
+  printf 'tfd:       12 events:       19 data:     55aa00001000  pos:0 ino:41a sdev:f\n' >> "$d/fdinfo/7"
+  printf 'tfd:       15 events:       19 data:     55aa00002000  pos:0 ino:9c1 sdev:9\n' >> "$d/fdinfo/7"
+  ln -sfn 'anon_inode:[eventfd]' "$d/fd/12"
+  ln -sfn 'socket:[88123]' "$d/fd/15"
+  # Duas bibliotecas executaveis e um trecho anonimo (fica de fora do .maps).
+  {
+    printf "7ace46a00000-7ace46c00000 r-xp 00100000 103:02 1001 /opt/dota/libanimationsystem.so\n"
+    printf "7acf1e100000-7acf1e300000 r-xp 00000000 103:02 1002 /opt/dota/libtier0.so\n"
+    printf "7acf20000000-7acf20100000 rw-p 00000000 00:00 0\n"
+  } > "$d/maps"
+}
+
+{
+  printf '# sonda ativa: pid=X limiar=500ms\n'
+  printf '\n=== TRAVADA 21:17:59.120000 var=A dur=3218ms\n'
+  printf 'principal: futex cmd=9 op=0x89 uaddr=0x7f00aa0010 timeout_pedido_ms=-1 ret=0\n'
+  printf '=== FIM\n'
+  printf '\n=== TRAVADA 21:25:18.700000 var=B dur=3222ms\n'
+  printf 'principal: epoll epfd=7 timeout_pedido_ms=3200 ret=1\n'
+  printf 'primeiro_evento: epfd=7 events=0x1 data=55aa00001000\n'
+  printf "\t7acf1e24b88c ThreadSpin+28 (/opt/dota/libtier0.so)\n"
+  printf "\t7ace46bc165b 0x7ace46bc165b ([unknown])\n"
+  printf "\t7acf55000000 0x7acf55000000 ([unknown])\n"
+  printf '=== FIM\n'
+} > "$TMP/bpf-out.txt"
+
+run_fp() {
+  PATH="$MOCK_DIR/bin:$PATH" FREEZE_PROBE_ALLOW_USER=1 FREEZE_PROBE_PROC="$fpproc" \
+    SUDO_USER="$(id -un)" MOCK_BPFTRACE_OUT="$TMP/bpf-out.txt" \
+    MOCK_BPFTRACE_LOG="$TMP/bpf.args" "$FP" "$@"
+}
+
+if runs "probe: sessao completa"; then
+  sleep 3 & game=$!
+  fake_game_proc "$game"
+  mkdir -p "$TMP/fplog"
+  err=$(run_fp -p "$game" -t 700 -o "$TMP/fplog" 2>&1)
+  wait "$game" 2>/dev/null
+  pout=$(ls "$TMP"/fplog/dota2-*-probe.txt 2>/dev/null | head -1)
+  body=$(cat "$pout" 2>/dev/null)
+  eq       "probe: sessao completa" "$([[ -s "$pout" ]] && echo sim || echo nao)" "sim" "$err"
+  contains "probe: passa PID e limiar ao bpftrace" "$(cat "$TMP/bpf.args" 2>/dev/null)" \
+           "-B line $ROOT/probe/freeze.bt $game 700"
+  contains "probe: cabecalho com o processo"  "$body" "# processo pid=$game nome=dota2 limiar=700ms"
+  contains "probe: lista as threads"           "$body" "#   $((game + 1)) GlobPool/0"
+  contains "probe: grava as travadas"          "$body" "var=B dur=3222ms"
+  contains "probe: traduz o epoll em fds"      "$body" "data:     55aa00001000"
+  contains "probe: alvo do fd do epoll"        "$body" "-> anon_inode:[eventfd]"
+  eq       "probe: fdinfo do epfd so uma vez"  "$(grep -c '^# epfd=7' <<<"$body")" "1" "$body"
+  # O jogo fechou: o lancador manda INT e o END (resumo) chega ao arquivo.
+  contains "probe: encerra com INT ao fechar o jogo" "$body" "parado: INT"
+  contains "probe: conta as travadas no fim"   "$err" "fim: 2 travadas"
+  contains "probe: grava o mapa de bibliotecas" "$(cat "${pout%.txt}.maps" 2>/dev/null)" \
+           "7ace46a00000-7ace46c00000 00100000 /opt/dota/libanimationsystem.so"
+  contains "probe: traduz endereco desconhecido" "$body" \
+           "7ace46bc165b libanimationsystem.so+0x2c165b ([unknown])"
+  contains "probe: endereco fora do mapa fica igual" "$body" "7acf55000000 0x7acf55000000 ([unknown])"
+  contains "probe: pilha com simbolo fica igual" "$body" "ThreadSpin+28 (/opt/dota/libtier0.so)"
+fi
+
+out=$(PATH="$MOCK_DIR/bin:$PATH" FREEZE_PROBE_ALLOW_USER=1 "$FP" --check 2>&1); rc=$?
+eq "probe: --check aceita programa valido" "$rc" "0" "$out"
+out=$(PATH="$MOCK_DIR/bin:$PATH" FREEZE_PROBE_ALLOW_USER=1 MOCK_BPFTRACE_FAIL="unknown field" \
+      "$FP" --check 2>&1); rc=$?
+eq       "probe: --check falha com programa recusado" "$rc" "1" "$out"
+contains "probe: --check mostra o erro do bpftrace"   "$out" "unknown field"
+
+out=$(PATH="$MOCK_DIR/bin:$PATH" "$FP" -p 1 2>&1)
+if (( EUID != 0 )); then contains "probe: exige root" "$out" "precisa de root"; fi
+out=$(PATH="$MOCK_DIR/bin:$PATH" FREEZE_PROBE_ALLOW_USER=1 "$FP" -t 10 2>&1)
+contains "probe: limiar minimo"   "$out" "limiar invalido: 10"
+out=$(PATH="$MOCK_DIR/bin:$PATH" FREEZE_PROBE_ALLOW_USER=1 FREEZE_PROBE_PROC="$fpproc" \
+      SUDO_USER="$(id -un)" "$FP" -p 999999 -o "$TMP/fplog" 2>&1)
+contains "probe: PID inexistente" "$out" "o processo 999999 nao existe"
 # ===========================================================================
 # resultado
 # ===========================================================================

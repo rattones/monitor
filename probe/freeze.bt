@@ -1,0 +1,314 @@
+/*
+ * freeze.bt - sonda das travadas da thread principal de um jogo.
+ *
+ * Chamado pelo freeze-probe.sh:  bpftrace freeze.bt <pid> <limiar_ms>
+ *
+ * "Travada" aqui e a thread principal (tid == pid) parada por mais que o
+ * limiar, em uma de tres formas:
+ *   A  dormindo num futex (FUTEX_WAIT / WAIT_BITSET)
+ *   B  dormindo num epoll_wait / epoll_pwait / epoll_pwait2
+ *   C  sem fazer nenhuma chamada de sistema (girando ela mesma)
+ *
+ * Para cada travada imprime um bloco com:
+ *   - o timeout que a principal PEDIU ao kernel e o retorno (-110 = ETIMEDOUT
+ *     no futex, 0 = timeout no epoll): mostra se o limite de ~3,2 s e dela;
+ *   - a pilha de usuario da principal no momento em que foi dormir;
+ *   - quem a acordou (sched_waking): processo, thread, pilha do kernel (diz o
+ *     mecanismo: futex_wake, ep_poll_callback <- eventfd/socket, hrtimer =
+ *     timeout) e a pilha de usuario do acordador;
+ *   - FUTEX_WAKE de outra thread do jogo no MESMO endereco em que a principal
+ *     dorme (prova a dependencia direta);
+ *   - no epoll: o cookie (data) do primeiro evento pronto - o freeze-probe.sh
+ *     casa com o fdinfo para dizer qual descritor era;
+ *   - quais threads do jogo rodaram durante a travada (amostras a 99 Hz, com
+ *     pilha) e quais chamadas de sistema fizeram.
+ *
+ * Estado: so a thread principal e rastreada nas esperas, mas o estado dela e
+ * lido por probes que rodam em OUTRAS threads e CPUs (quem acorda, amostras,
+ * syscalls das outras threads). Por isso todo ele fica em mapas com chave
+ * explicita ($k = tid da principal) e nunca em mapas escalares: na primeira
+ * versao, com @m_* sem chave, as outras CPUs liam valores velhos (inicio 0 com
+ * espera ativa), o que gerou ~20 mil falsos FUTEX_WAKE, quase nenhum "quem
+ * acordou" e contagens de syscalls de fora da travada. Toda leitura de fora
+ * tambem confere se o inicio e valido ($s != 0 e $s <= nsecs).
+ */
+
+config = {
+    max_map_keys = 16384;
+}
+
+BEGIN
+{
+    @thr = (uint64)$2 * 1000000;
+    printf("# sonda ativa: pid=%d limiar=%dms\n", $1, $2);
+}
+
+/* ------------------------------------------------------------ futex ---- */
+
+tracepoint:syscalls:sys_enter_futex
+/tid == $1/
+{
+    $k = (uint64)$1;
+    $cmd = args.op & 0x7f;
+    /* 0 = FUTEX_WAIT, 9 = FUTEX_WAIT_BITSET, 11 = FUTEX_WAIT_REQUEUE_PI */
+    if ($cmd == 0 || $cmd == 9 || $cmd == 11) {
+        @addr[$k] = (uint64)args.uaddr;
+        @cmd[$k] = $cmd;
+        @op[$k] = args.op;
+        @tmo[$k] = (int64)-1;
+        if (args.utime != 0) {
+            $t = (int64)uptr(args.utime)->tv_sec * 1000000000
+                 + (int64)uptr(args.utime)->tv_nsec;
+            if ($cmd == 0) {
+                /* FUTEX_WAIT: timeout relativo */
+                @tmo[$k] = (int64)((uint64)$t / 1000000);
+            } else if ((args.op & 256) == 0) {
+                /* WAIT_BITSET: prazo absoluto em CLOCK_MONOTONIC, o mesmo de nsecs */
+                @tmo[$k] = (int64)(((uint64)$t - nsecs) / 1000000);
+            } else {
+                /* prazo absoluto em CLOCK_REALTIME: marcado a parte */
+                @tmo[$k] = (int64)-2;
+            }
+        }
+        @stk[$k] = ustack(perf, 24);
+        @wts[$k] = (uint64)0;
+        /* inicio e tipo por ultimo: quem le de fora so ve a espera ja montada */
+        @start[$k] = nsecs;
+        @kind[$k] = 1;
+    }
+}
+
+tracepoint:syscalls:sys_exit_futex
+/tid == $1/
+{
+    $k = (uint64)$1;
+    if (@kind[$k] == 1) {
+        /* tipo zerado primeiro: quem le de fora deixa de ver a espera antes do inicio sumir */
+        @kind[$k] = 0;
+        $d = nsecs - @start[$k];
+        if (@start[$k] != 0 && $d >= @thr) {
+            printf("\n=== TRAVADA %s var=A dur=%dms\n",
+                   strftime("%H:%M:%S.%f", nsecs), $d / 1000000);
+            printf("principal: futex cmd=%d op=0x%x uaddr=0x%lx timeout_pedido_ms=%d ret=%d\n",
+                   @cmd[$k], @op[$k], @addr[$k], @tmo[$k], args.ret);
+            @fstk[$k] = @stk[$k];
+            @fhas[$k] = 1;
+            @n_A = count();
+            @fim[$k] = 1;
+        }
+        @start[$k] = (uint64)0;
+    }
+}
+
+/* Outra thread do jogo acordando o endereco em que a principal dorme */
+tracepoint:syscalls:sys_enter_futex
+/pid == $1 && tid != $1/
+{
+    $k = (uint64)$1;
+    $cmd = args.op & 0x7f;
+    /* 1 = WAKE, 5 = WAKE_OP, 10 = WAKE_BITSET */
+    if (($cmd == 1 || $cmd == 5 || $cmd == 10) && @kind[$k] == 1
+        && (uint64)args.uaddr == @addr[$k]) {
+        $s = @start[$k];
+        if ($s != 0 && $s <= nsecs && nsecs - $s >= @thr) {
+            printf("WAKE_MESMO_ENDERECO %s tid=%d comm=%s cmd=%d val=%d principal_esperava_ms=%d\n",
+                   strftime("%H:%M:%S.%f", nsecs), tid, comm, $cmd, args.val,
+                   (nsecs - $s) / 1000000);
+            printf("%s\n", ustack(perf, 24));
+        }
+    }
+}
+
+/* ------------------------------------------------------------ epoll ---- */
+
+tracepoint:syscalls:sys_enter_epoll_wait,
+tracepoint:syscalls:sys_enter_epoll_pwait
+/tid == $1/
+{
+    $k = (uint64)$1;
+    @epfd[$k] = args.epfd;
+    @evp[$k] = (uint64)args.events;
+    @tmo[$k] = (int64)args.timeout;
+    @stk[$k] = ustack(perf, 24);
+    @wts[$k] = (uint64)0;
+    @start[$k] = nsecs;
+    @kind[$k] = 2;
+}
+
+tracepoint:syscalls:sys_enter_epoll_pwait2
+/tid == $1/
+{
+    $k = (uint64)$1;
+    @epfd[$k] = args.epfd;
+    @evp[$k] = (uint64)args.events;
+    @tmo[$k] = (int64)-1;
+    if (args.timeout != 0) {
+        @tmo[$k] = (int64)(((uint64)uptr(args.timeout)->tv_sec * 1000000000
+                   + (uint64)uptr(args.timeout)->tv_nsec) / 1000000);
+    }
+    @stk[$k] = ustack(perf, 24);
+    @wts[$k] = (uint64)0;
+    @start[$k] = nsecs;
+    @kind[$k] = 2;
+}
+
+tracepoint:syscalls:sys_exit_epoll_wait,
+tracepoint:syscalls:sys_exit_epoll_pwait,
+tracepoint:syscalls:sys_exit_epoll_pwait2
+/tid == $1/
+{
+    $k = (uint64)$1;
+    if (@kind[$k] == 2) {
+        @kind[$k] = 0;
+        $d = nsecs - @start[$k];
+        if (@start[$k] != 0 && $d >= @thr) {
+            printf("\n=== TRAVADA %s var=B dur=%dms\n",
+                   strftime("%H:%M:%S.%f", nsecs), $d / 1000000);
+            printf("principal: epoll epfd=%d timeout_pedido_ms=%d ret=%d\n",
+                   @epfd[$k], @tmo[$k], args.ret);
+            if (args.ret > 0) {
+                /* struct epoll_event e empacotada no x86_64: u32 events, u64 data */
+                $ev = *uptr((uint32 *)@evp[$k]);
+                $data = *uptr((uint64 *)(@evp[$k] + 4));
+                printf("primeiro_evento: epfd=%d events=0x%x data=%lx\n", @epfd[$k], $ev, $data);
+            }
+            @fstk[$k] = @stk[$k];
+            @fhas[$k] = 1;
+            @n_B = count();
+            @fim[$k] = 1;
+        }
+        @start[$k] = (uint64)0;
+    }
+}
+
+/* ----------------------------------------------- quem acorda a principal */
+
+tracepoint:sched:sched_waking
+/args.pid == $1/
+{
+    $k = (uint64)$1;
+    $s = @start[$k];
+    if (@kind[$k] != 0 && @wts[$k] == 0 && $s != 0 && $s <= nsecs && nsecs - $s >= @thr) {
+        @wts[$k] = nsecs;
+        @wcomm[$k] = comm;
+        @wpid[$k] = pid;
+        @wtid[$k] = tid;
+        @wks[$k] = kstack(14);
+        @wus[$k] = ustack(perf, 24);
+    }
+}
+
+/* ---------------------------- variante C: principal sem chamar o kernel */
+
+tracepoint:raw_syscalls:sys_enter
+/tid == $1/
+{
+    $k = (uint64)$1;
+    if (@cst[$k] != 0) {
+        $d = nsecs - @cst[$k];
+        printf("\n=== TRAVADA %s var=C dur=%dms\n",
+               strftime("%H:%M:%S.%f", nsecs), $d / 1000000);
+        printf("principal: ficou %dms sem chamada de sistema; a seguinte foi nr=%d\n",
+               $d / 1000000, args.id);
+        @fhas[$k] = 0;
+        @n_C = count();
+        @cst[$k] = (uint64)0;
+        @fim[$k] = 1;
+    }
+    @insys[$k] = 1;
+    @last[$k] = nsecs;
+}
+
+tracepoint:raw_syscalls:sys_exit
+/tid == $1/
+{
+    $k = (uint64)$1;
+    @insys[$k] = 0;
+    @last[$k] = nsecs;
+}
+
+interval:ms:50
+{
+    $k = (uint64)$1;
+    $l = @last[$k];
+    if (@insys[$k] == 0 && @cst[$k] == 0 && $l != 0 && $l <= nsecs && nsecs - $l >= @thr) {
+        @cst[$k] = $l;
+    }
+}
+
+/* ----------------------------- o que o jogo faz enquanto a principal para */
+
+profile:hz:99
+/pid == $1/
+{
+    $k = (uint64)$1;
+    $s = @start[$k];
+    if (@cst[$k] != 0
+        || (@kind[$k] != 0 && $s != 0 && $s <= nsecs && nsecs - $s >= @thr)) {
+        @spin[tid, comm, cpu, ustack(perf, 24)] = count();
+    }
+}
+
+tracepoint:raw_syscalls:sys_enter
+/pid == $1 && tid != $1/
+{
+    $k = (uint64)$1;
+    $s = @start[$k];
+    if (@cst[$k] != 0
+        || (@kind[$k] != 0 && $s != 0 && $s <= nsecs && nsecs - $s >= @thr)) {
+        @sys_na_travada[tid, comm, args.id] = count();
+    }
+}
+
+/* ------------------------------------------- fecha o bloco da travada */
+
+/*
+ * Os blocos de cima so imprimem o cabecalho; o resto sai aqui, num probe que
+ * roda logo depois (interval de 10 ms), para nao repetir o mesmo codigo nas
+ * tres saidas. A pilha da principal foi copiada para @fstk na saida da espera:
+ * em 10 ms ela ja pode estar dormindo de novo, sobrescrevendo @stk.
+ */
+interval:ms:10
+{
+    $k = (uint64)$1;
+    if (@fim[$k] == 1) {
+        @fim[$k] = 0;
+        if (@fhas[$k] == 1) {
+            printf("--- pilha da principal ao dormir:\n");
+            print(@fstk[$k]);
+        } else {
+            printf("--- pilha da principal: ver as amostras abaixo (ela mesma gira)\n");
+        }
+        if (@wts[$k] != 0) {
+            printf("--- acordada por: comm=%s pid=%d tid=%d\n", @wcomm[$k], @wpid[$k], @wtid[$k]);
+            printf("--- pilha do kernel de quem acordou:\n");
+            print(@wks[$k]);
+            printf("--- pilha de usuario de quem acordou:\n");
+            print(@wus[$k]);
+        } else {
+            printf("--- acordada por: (nenhum sched_waking registrado)\n");
+        }
+        printf("--- threads do jogo rodando durante a travada (amostras a 99 Hz: tid, nome, cpu, pilha):\n");
+        print(@spin);
+        clear(@spin);
+        printf("--- chamadas de sistema das outras threads durante a travada (tid, nome, nr):\n");
+        print(@sys_na_travada);
+        clear(@sys_na_travada);
+        printf("=== FIM\n");
+        @wts[$k] = (uint64)0;
+    }
+}
+
+END
+{
+    printf("\n# resumo\n");
+    print(@n_A);
+    print(@n_B);
+    print(@n_C);
+    clear(@stk); clear(@fstk); clear(@fhas); clear(@wks); clear(@wus);
+    clear(@spin); clear(@sys_na_travada);
+    clear(@thr); clear(@start); clear(@kind); clear(@insys); clear(@last);
+    clear(@cst); clear(@wts); clear(@wcomm); clear(@wpid); clear(@wtid);
+    clear(@addr); clear(@cmd); clear(@op); clear(@tmo); clear(@epfd);
+    clear(@evp); clear(@fim); clear(@n_A); clear(@n_B); clear(@n_C);
+}

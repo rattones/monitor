@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# bpftrace falso, para os testes do probe/freeze-probe.sh. Duas invocacoes:
+#
+#   --version                imprime uma versao
+#   --dry-run PROG ...       sai 0, ou 1 com uma mensagem se MOCK_BPFTRACE_FAIL
+#                            estiver definido (simula programa recusado)
+#   [-B line] PROG PID THR   o que a sonda roda: grava os argumentos em
+#                            MOCK_BPFTRACE_LOG, imprime o arquivo de
+#                            MOCK_BPFTRACE_OUT (saida no formato do freeze.bt) e
+#                            fica vivo ate receber INT ou TERM, quando imprime o
+#                            resumo e o sinal recebido ("parado: INT"), como o
+#                            END do bpftrace real
+
+case "${1:-}" in
+  --version) echo "bpftrace v0.25.0"; exit 0 ;;
+  --dry-run)
+    if [[ -n "${MOCK_BPFTRACE_FAIL:-}" ]]; then
+      echo "ERROR: $MOCK_BPFTRACE_FAIL" >&2; exit 1
+    fi
+    exit 0 ;;
+esac
+
+[[ -n "${MOCK_BPFTRACE_LOG:-}" ]] && printf '%s\n' "$*" > "$MOCK_BPFTRACE_LOG"
+
+finish() { printf '\n# resumo\nparado: %s\n' "$1"; exit 0; }
+trap 'finish INT' INT
+trap 'finish TERM' TERM
+
+[[ -r "${MOCK_BPFTRACE_OUT:-}" ]] && cat "$MOCK_BPFTRACE_OUT"
+while :; do sleep 0.1; done

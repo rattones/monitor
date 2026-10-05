@@ -6,6 +6,20 @@ All notable changes to this project. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the version is the
 one printed by `monitor --version`.
 
+## [Unreleased]
+
+### Added
+
+- **`probe/` subproject: main-thread freeze probe** (bpftrace, root), separate
+  from the monitor, which keeps running unprivileged and unchanged.
+  `sudo ./probe/freeze-probe.sh` waits for the game and writes every main-thread
+  freeze above the threshold (`futex`, `epoll` or no syscall) to
+  `~/.monitor/log/<name>-<date>-probe.txt`: requested timeout and return value,
+  stack at sleep, who woke it and through which mechanism, `FUTEX_WAKE` on the
+  same address, the epoll fd that fired, and the threads that ran meanwhile.
+  `--check` validates the program on the running kernel. See `probe/README.md`.
+- 20 tests for the probe launcher, with a fake `bpftrace` and `/proc`.
+
 ## [3.5] — 2026-09-29
 
 ### Added

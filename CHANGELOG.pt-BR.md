@@ -6,6 +6,20 @@ Todas as mudanças relevantes do projeto. O formato segue o
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/), e a versão é a que
 `monitor --version` imprime.
 
+## [Não lançado]
+
+### Adicionado
+
+- **Subprojeto `probe/`: sonda das travadas da thread principal** (bpftrace,
+  root), separada do monitor, que continua rodando como usuário sem mudança.
+  `sudo ./probe/freeze-probe.sh` espera o jogo abrir e grava em
+  `~/.monitor/log/<nome>-<data>-probe.txt` cada travada da principal acima do
+  limiar (`futex`, `epoll` ou sem syscall): timeout pedido e retorno, pilha ao
+  dormir, quem acordou e por qual mecanismo, `FUTEX_WAKE` no mesmo endereço,
+  descritor do epoll que disparou e as threads que rodaram durante a parada.
+  `--check` valida o programa no kernel. Ver `probe/README.pt-BR.md`.
+- 20 testes para o lançador da sonda, com `bpftrace` e `/proc` falsos.
+
 ## [3.5] — 2026-09-29
 
 ### Adicionado
