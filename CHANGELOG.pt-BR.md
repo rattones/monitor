@@ -6,7 +6,7 @@ Todas as mudanças relevantes do projeto. O formato segue o
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/), e a versão é a que
 `monitor --version` imprime.
 
-## [Não lançado]
+## [3.7] — 2026-10-05
 
 ### Mudado
 

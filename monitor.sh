@@ -18,7 +18,7 @@
 
 set -uo pipefail
 
-VERSION="3.6"
+VERSION="3.7"
 
 # readlink -f resolve a cadeia de symlinks ate o arquivo real: instalado, o
 # comando em /usr/local/bin e um link, e sem isto o lib/ seria procurado ao
