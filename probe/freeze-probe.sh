@@ -18,6 +18,11 @@
 #   sudo ./probe/freeze-probe.sh -p 12345        # um PID que ja esta rodando
 #   sudo ./probe/freeze-probe.sh -t 1000         # so travadas >= 1000 ms
 #   sudo ./probe/freeze-probe.sh --check         # so valida o programa e sai
+#   ./probe/freeze-probe.sh -V                 # versao (a mesma do monitor)
+#
+# Instalado pelo install.sh do monitor, vira o comando freeze-probe: os exemplos
+# acima valem com "sudo freeze-probe" (ou o caminho completo, se o diretorio
+# nao estiver no secure_path do sudo - o install.sh mostra qual usar).
 #
 # Saida: ~/.monitor/log/<nome>-<AAAAMMDD-HHMMSS>-probe.txt do usuario que
 # chamou o sudo (dono do arquivo e ele, nao o root). O horario e o mesmo
@@ -34,6 +39,10 @@ SELF_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd
 BT="$SELF_DIR/freeze.bt"
 # So para a suite de testes: um /proc falso e rodar sem root contra mocks.
 PROC="${FREEZE_PROBE_PROC:-/proc}"
+# Nome com que a pessoa chama a sonda, para a ajuda e as mensagens: o lancador
+# instalado pelo install.sh define FREEZE_PROBE_CMD; direto do repositorio, e o $0.
+PROG="${FREEZE_PROBE_CMD:-$0}"
+ARGS=("$@")
 
 NAME="dota2"
 PID=""
@@ -44,7 +53,20 @@ CHECK=0
 die() { printf 'erro: %s\n' "$1" >&2; exit 1; }
 info() { printf '%s\n' "$1" >&2; }
 
-usage() { sed -n '/^# Uso:/,/^# Saida:/{/^# Saida:/d;s/^# \{0,1\}//;p}' "${BASH_SOURCE[0]}"; }
+# A ajuda e o bloco "Uso:" do cabecalho, com o nome trocado pelo que a pessoa
+# usou (PROG): "sudo freeze-probe ..." quando instalado.
+usage() {
+  sed -n '/^# Uso:/,/^# Saida:/{/^# Saida:/d;s/^# \{0,1\}//;p}' "${BASH_SOURCE[0]}" \
+    | sed "s#\./probe/freeze-probe\.sh#$PROG#"
+}
+
+# A versao e a do monitor, do qual a sonda faz parte: lida do monitor.sh um
+# nivel acima (no repositorio e na instalacao, que copia o probe/ ao lado dele).
+version() {
+  local v
+  v=$(sed -n 's/^VERSION="\(.*\)"$/\1/p' "$SELF_DIR/../monitor.sh" 2>/dev/null)
+  printf 'freeze-probe (monitor %s)\n' "${v:-?}"
+}
 
 while (( $# )); do
   case "$1" in
@@ -54,13 +76,14 @@ while (( $# )); do
     -o|--out)     OUT_DIR="${2:?}"; shift 2 ;;
     --check)      CHECK=1; shift ;;
     -h|--help)    usage; exit 0 ;;
+    -V|--version) version; exit 0 ;;
     *)            die "opcao desconhecida: $1 (veja -h)" ;;
   esac
 done
 
 [[ "$THR_MS" =~ ^[0-9]+$ ]] && (( THR_MS >= 50 )) || die "limiar invalido: $THR_MS (ms, minimo 50)"
 [[ -z "$PID" || "$PID" =~ ^[0-9]+$ ]] || die "PID invalido: $PID"
-(( EUID == 0 )) || [[ "${FREEZE_PROBE_ALLOW_USER:-}" == 1 ]] || die "precisa de root: sudo $0 $*"
+(( EUID == 0 )) || [[ "${FREEZE_PROBE_ALLOW_USER:-}" == 1 ]] || die "precisa de root: sudo $PROG ${ARGS[*]}"
 command -v bpftrace >/dev/null 2>&1 || die "bpftrace nao encontrado (sudo apt install bpftrace)"
 [[ -r "$BT" ]] || die "nao achei $BT"
 

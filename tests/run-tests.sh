@@ -1125,6 +1125,50 @@ contains "probe: limiar minimo"   "$out" "limiar invalido: 10"
 out=$(PATH="$MOCK_DIR/bin:$PATH" FREEZE_PROBE_ALLOW_USER=1 FREEZE_PROBE_PROC="$fpproc" \
       SUDO_USER="$(id -un)" "$FP" -p 999999 -o "$TMP/fplog" 2>&1)
 contains "probe: PID inexistente" "$out" "o processo 999999 nao existe"
+
+# ===========================================================================
+group "install.sh"
+# ===========================================================================
+
+# Instala num prefixo temporario: monitor e sonda, copia e --link, e remocao.
+INS="$ROOT/install.sh"
+pfx="$TMP/pfx"
+ver=$(sed -n 's/^VERSION="\(.*\)"$/\1/p' "$ROOT/monitor.sh")
+
+out=$("$INS" --prefix "$pfx" 2>&1); rc=$?
+eq       "install: instala sem erro"            "$rc" "0" "$out"
+eq       "install: comando monitor"             "$([[ -x "$pfx/bin/monitor" ]] && echo sim)" "sim" "$out"
+eq       "install: comando freeze-probe"        "$([[ -x "$pfx/bin/freeze-probe" ]] && echo sim)" "sim" "$out"
+eq       "install: copia probe/"                "$(ls "$pfx/lib/monitor/probe" 2>/dev/null | tr '\n' ' ')" "freeze-probe.sh freeze.bt " "$out"
+contains "install: mostra como rodar a sonda"   "$out" "sudo $pfx/bin/freeze-probe --check"
+eq       "install: sonda na versao do monitor"  "$("$pfx/bin/freeze-probe" -V 2>&1)" "freeze-probe (monitor $ver)"
+# Fora do secure_path do sudo (aqui, um prefixo qualquer), a ajuda e o erro de
+# root mostram o caminho completo, que e o que funciona com sudo.
+contains "install: ajuda com o caminho instalado" "$("$pfx/bin/freeze-probe" -h 2>&1)" "sudo $pfx/bin/freeze-probe -n outro_jogo"
+if (( EUID != 0 )); then
+  contains "install: sonda instalada exige root" "$("$pfx/bin/freeze-probe" -p 1 2>&1)" \
+           "precisa de root: sudo $pfx/bin/freeze-probe -p 1"
+fi
+
+out=$("$INS" --prefix "$pfx" 2>&1); rc=$?
+eq "install: reinstala por cima sem --force" "$rc" "0" "$out"
+
+out=$("$INS" --prefix "$pfx" --link 2>&1)
+contains "install: --link aponta a sonda para o repositorio" "$(cat "$pfx/bin/freeze-probe")" \
+         "exec \"$ROOT/probe/freeze-probe.sh\""
+
+out=$("$INS" --prefix "$pfx" --uninstall 2>&1)
+eq "install: remove o monitor"      "$([[ -e "$pfx/bin/monitor" ]] && echo existe || echo removido)" "removido" "$out"
+eq "install: remove a sonda"        "$([[ -e "$pfx/bin/freeze-probe" ]] && echo existe || echo removido)" "removido" "$out"
+
+# Um freeze-probe que nao e deste projeto: nao sobrescreve sem --force e nao
+# remove na desinstalacao.
+mkdir -p "$TMP/pfx2/bin"; printf '#!/bin/sh\necho outro\n' > "$TMP/pfx2/bin/freeze-probe"
+out=$("$INS" --prefix "$TMP/pfx2" 2>&1); rc=$?
+eq       "install: recusa freeze-probe alheio"  "$rc" "1" "$out"
+contains "install: explica a recusa"            "$out" "does not look like monitor's"
+"$INS" --prefix "$TMP/pfx2" --uninstall >/dev/null 2>&1
+eq "install: nao remove freeze-probe alheio" "$(cat "$TMP/pfx2/bin/freeze-probe" 2>/dev/null | tail -1)" "echo outro"
 # ===========================================================================
 # resultado
 # ===========================================================================

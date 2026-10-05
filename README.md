@@ -327,9 +327,17 @@ own: the monitor keeps running unprivileged and unchanged, and both write to
 `~/.monitor/log` on the same local clock.
 
 ```bash
-sudo ./probe/freeze-probe.sh --check   # once: validate the program on this kernel
-sudo ./probe/freeze-probe.sh           # waits for dota2 (-n NAME, -p PID), exits with it
+sudo freeze-probe --check   # once: validate the program on this kernel
+sudo freeze-probe           # waits for dota2 (-n NAME, -p PID), exits with it
 ```
+
+`install.sh` installs it next to `monitor` as the `freeze-probe` command.
+Installing grants nothing: it only runs when you call it with `sudo`. sudo
+looks up commands in its own `secure_path`, not your `PATH`, so with the default
+`~/.local` install use the full path (`sudo ~/.local/bin/freeze-probe`). The
+installer prints the exact line, and `sudo ./install.sh --system` makes plain
+`sudo freeze-probe` work. From a clone without installing:
+`sudo ./probe/freeze-probe.sh`.
 
 For every main-thread stop longer than the threshold (`-t`, 500 ms by default),
 whether asleep in a `futex`, in `epoll_wait`, or making no system call at all,
@@ -345,8 +353,7 @@ it writes one block to `<name>-<date>-probe.txt` with:
 It also keeps `<name>-<date>-probe.maps`, the process's executable mappings,
 and at the end rewrites `0x... ([unknown])` stack frames as
 `library.so+0xoffset`. Needs `bpftrace` (tested with 0.25) and kernel BTF.
-`install.sh` does not install `probe/`: run it from the repository. Details
-and limits in [probe/README.md](probe/README.md).
+Details and limits in [probe/README.md](probe/README.md).
 
 ## Language
 
@@ -373,7 +380,7 @@ Code comments are in Portuguese.
 
 ```
 monitor.sh              entry point: loads lib/, assembles main()
-install.sh              installs/removes the system command
+install.sh              installs/removes the commands (monitor and freeze-probe)
 lib/
 ├── core.sh             die, run_source, FIFOs, traps, waiting
 ├── backend.sh          GPU backend contract + autodetection
@@ -408,7 +415,7 @@ missing, rather than failing halfway through a collection.
 ## Tests
 
 ```bash
-./tests/run-tests.sh          # 224 tests, about two minutes
+./tests/run-tests.sh          # 239 tests, about two minutes
 ./tests/run-tests.sh -v amd   # filter, show output of failures
 ```
 

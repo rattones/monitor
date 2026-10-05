@@ -6,10 +6,20 @@ Todas as mudanças relevantes do projeto. O formato segue o
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/), e a versão é a que
 `monitor --version` imprime.
 
-## [Não lançado]
+## [3.6] — 2026-10-05
 
 ### Adicionado
 
+- **Comando `freeze-probe`**: o `install.sh` agora instala a sonda ao lado do
+  monitor (`<prefixo>/bin/freeze-probe`, com o `probe/` em
+  `<prefixo>/lib/monitor/`), nos modos cópia e `--link`, e o `--uninstall` a
+  remove. Instalar não dá privilégio nenhum: ela só roda quando chamada com
+  `sudo`. Como o sudo procura no `secure_path` e não no `PATH` da pessoa, o
+  instalador mostra a linha certa, `sudo freeze-probe` em `/usr/local` ou o
+  caminho completo em `~/.local`, e a ajuda e as mensagens da sonda usam o mesmo
+  nome. Um `freeze-probe` que não foi instalado por este script não é
+  sobrescrito sem `--force` nem removido.
+- `freeze-probe -V`: mostra a versão do monitor, sem precisar de root.
 - **Subprojeto `probe/`: sonda das travadas da thread principal** (bpftrace,
   root), separada do monitor, que continua rodando como usuário sem mudança.
   `sudo ./probe/freeze-probe.sh` espera o jogo abrir e grava em
@@ -22,10 +32,16 @@ Todas as mudanças relevantes do projeto. O formato segue o
   os quadros `0x... ([unknown])` das pilhas por `biblioteca.so+0xdeslocamento`.
   Todo o estado da sonda fica em mapas com chave, porque é lido de outras CPUs.
   Ver `probe/README.pt-BR.md`.
+- INSTALL e README: como instalar a sonda e rodá-la com sudo.
 - README: seção sobre a sonda, a pasta `probe/` na árvore do código e "Na
   prática", com o link da investigação para a qual as ferramentas foram feitas.
-- 20 testes (224 no total) para o lançador da sonda, com `bpftrace` e `/proc`
-  falsos.
+- 20 testes para o lançador da sonda, com `bpftrace` e `/proc` falsos, e os
+  primeiros 15 do `install.sh` (239 no total).
+
+### Corrigido
+
+- A mensagem "precisa de root" da sonda perdia os argumentos (imprimia o `$*`
+  depois de consumi-los). Agora repete o comando exato a rodar com sudo.
 
 ## [3.5] — 2026-09-29
 

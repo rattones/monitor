@@ -12,9 +12,16 @@ local, para cruzar os horários.
 ## Uso
 
 ```bash
-sudo ./probe/freeze-probe.sh --check    # uma vez: valida o programa no seu kernel
-sudo ./probe/freeze-probe.sh            # antes de jogar: espera o dota2 abrir
+sudo freeze-probe --check    # uma vez: valida o programa no seu kernel
+sudo freeze-probe            # antes de jogar: espera o dota2 abrir
+freeze-probe -V              # versão (a do monitor; não precisa de root)
 ```
+
+O `freeze-probe` é instalado pelo `install.sh` do monitor, ao lado do
+`monitor`. Na instalação padrão em `~/.local`, o sudo não procura no seu
+`PATH`: use `sudo ~/.local/bin/freeze-probe` (o instalador mostra a linha
+exata) ou instale com `sudo ./install.sh --system`. Direto do clone:
+`sudo ./probe/freeze-probe.sh`.
 
 Depois é só jogar. A sonda se prende ao jogo quando ele abre e sai sozinha
 quando ele fecha. O arquivo é
@@ -27,6 +34,7 @@ quando ele fecha. O arquivo é
 | `-t MS` | limiar da travada em ms (padrão 500, mínimo 50) |
 | `-o DIR` | diretório de saída (padrão `~/.monitor/log` de quem chamou o sudo) |
 | `--check` | só compila e prende as sondas (`bpftrace --dry-run`) e sai |
+| `-V` | versão (a do monitor), não precisa de root |
 
 Requisitos: `bpftrace` (testado com 0.25), kernel com BTF
 (`/sys/kernel/btf/vmlinux`).

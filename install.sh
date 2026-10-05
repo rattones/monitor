@@ -7,6 +7,11 @@
 # comando instalado e um lancador de tres linhas que aponta MONITOR_LIB_DIR
 # para o lib/ instalado e chama o monitor.sh de la.
 #
+# Junto vai a sonda de travadas, como um segundo comando: <prefixo>/bin/freeze-probe,
+# com o probe/ em <prefixo>/lib/monitor/probe/. Instalar nao da privilegio
+# nenhum: ela so roda quando a pessoa chama com sudo (precisa de root para o
+# bpftrace). O monitor continua sem root.
+#
 # Copia, nao cria symlink para o diretorio de desenvolvimento: assim mover ou
 # apagar a pasta do projeto nao quebra o comando instalado. Para trabalhar no
 # codigo e ver o efeito na hora, use --link.
@@ -27,6 +32,7 @@ set -uo pipefail
 
 SRC_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)"
 NAME="monitor"
+PROBE="freeze-probe"
 
 PREFIX=""
 MODE="copy"      # copy | link
@@ -52,7 +58,8 @@ Usage: ${0##*/} [options]
 
 Where things go:
   <prefix>/bin/$NAME          the command
-  <prefix>/lib/$NAME/         monitor.sh and lib/
+  <prefix>/bin/$PROBE    the freeze probe (run it with sudo, only when needed)
+  <prefix>/lib/$NAME/         monitor.sh, lib/ and probe/
 
 The CSVs go to \$HOME/.monitor/log of whoever runs the command, and are
 untouched by installing or removing.
@@ -85,6 +92,7 @@ fi
 BIN_DIR="$PREFIX/bin"
 LIB_DEST="$PREFIX/lib/$NAME"
 CMD="$BIN_DIR/$NAME"
+PROBE_CMD="$BIN_DIR/$PROBE"
 
 # --- remocao ---------------------------------------------------------------
 
@@ -93,6 +101,10 @@ if [[ "$ACTION" == uninstall ]]; then
   if [[ -e "$CMD" ]]; then
     rm -f "$CMD" || die "could not remove $CMD"
     info "removed: $CMD"; removed=1
+  fi
+  if [[ -e "$PROBE_CMD" ]] && grep -q "FREEZE_PROBE_CMD" "$PROBE_CMD" 2>/dev/null; then
+    rm -f "$PROBE_CMD" || die "could not remove $PROBE_CMD"
+    info "removed: $PROBE_CMD"; removed=1
   fi
   if [[ -d "$LIB_DEST" ]]; then
     rm -rf "$LIB_DEST" || die "could not remove $LIB_DEST"
@@ -108,6 +120,8 @@ fi
 
 [[ -r "$SRC_DIR/monitor.sh" ]] || die "could not find monitor.sh in $SRC_DIR"
 [[ -d "$SRC_DIR/lib" ]] || die "could not find lib/ in $SRC_DIR"
+[[ -r "$SRC_DIR/probe/freeze-probe.sh" && -r "$SRC_DIR/probe/freeze.bt" ]] \
+  || die "could not find probe/freeze-probe.sh and probe/freeze.bt in $SRC_DIR"
 
 # Um bash muito antigo nao tem mapfile, usado na descoberta de discos.
 if (( BASH_VERSINFO[0] < 4 )); then
@@ -117,7 +131,7 @@ fi
 # Sintaxe conferida antes de instalar: melhor falhar agora do que deixar um
 # comando quebrado no PATH.
 for f in "$SRC_DIR/monitor.sh" "$SRC_DIR"/lib/*.sh "$SRC_DIR"/lib/backends/*.sh "$SRC_DIR"/lib/helpers/*.sh \
-         "$SRC_DIR"/lib/i18n/*.sh; do
+         "$SRC_DIR"/lib/i18n/*.sh "$SRC_DIR/probe/freeze-probe.sh"; do
   bash -n "$f" 2>/dev/null || die "syntax error in $f - install aborted"
 done
 
@@ -131,6 +145,11 @@ if [[ -e "$CMD" ]] && (( ! FORCE )); then
     die "$CMD already exists and does not look like monitor's - use --force to overwrite"
   fi
 fi
+# A mesma regra para a sonda, conferida a parte: pode haver um freeze-probe de
+# outra origem mesmo onde o monitor ainda nao foi instalado.
+if [[ -e "$PROBE_CMD" ]] && (( ! FORCE )) && ! grep -q "FREEZE_PROBE_CMD" "$PROBE_CMD" 2>/dev/null; then
+  die "$PROBE_CMD already exists and does not look like monitor's - use --force to overwrite"
+fi
 
 # --- instalacao ------------------------------------------------------------
 
@@ -139,6 +158,7 @@ if [[ "$MODE" == link ]]; then
   # codigo aqui muda o comportamento do comando instalado na hora.
   TARGET_LIB="$SRC_DIR/lib"
   TARGET_MAIN="$SRC_DIR/monitor.sh"
+  TARGET_PROBE="$SRC_DIR/probe/freeze-probe.sh"
   rm -rf "$LIB_DEST" 2>/dev/null
 else
   mkdir -p "$LIB_DEST" || die "could not create $LIB_DEST (need sudo?)"
@@ -146,13 +166,20 @@ else
 
   # rm antes de copiar: sem isso, um backend removido de uma versao para outra
   # ficaria para tras no destino e a autodeteccao continuaria enxergando ele.
-  rm -rf "${LIB_DEST:?}/lib" "${LIB_DEST:?}/monitor.sh"
+  rm -rf "${LIB_DEST:?}/lib" "${LIB_DEST:?}/monitor.sh" "${LIB_DEST:?}/probe"
   cp -R "$SRC_DIR/lib" "$LIB_DEST/lib" || die "could not copy lib/"
   cp "$SRC_DIR/monitor.sh" "$LIB_DEST/monitor.sh" || die "could not copy monitor.sh"
   chmod 0755 "$LIB_DEST/monitor.sh"
+  # A sonda vai inteira (lancador + programa bpftrace): o freeze-probe.sh acha o
+  # freeze.bt ao lado dele, e o monitor.sh um nivel acima (de onde le a versao).
+  mkdir -p "$LIB_DEST/probe" || die "could not create $LIB_DEST/probe"
+  cp "$SRC_DIR/probe/freeze-probe.sh" "$SRC_DIR/probe/freeze.bt" "$LIB_DEST/probe/" \
+    || die "could not copy probe/"
+  chmod 0755 "$LIB_DEST/probe/freeze-probe.sh"
 
   TARGET_LIB="$LIB_DEST/lib"
   TARGET_MAIN="$LIB_DEST/monitor.sh"
+  TARGET_PROBE="$LIB_DEST/probe/freeze-probe.sh"
 fi
 
 # O lancador: fixa onde esta o lib/ e repassa os argumentos. "exec" para o
@@ -166,9 +193,31 @@ exec "$TARGET_MAIN" "\$@"
 LAUNCHER
 chmod 0755 "$CMD" || die "could not make $CMD executable"
 
+# O sudo nao procura no PATH da pessoa, e sim no secure_path (no Ubuntu,
+# /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin). Instalado em
+# ~/.local, "sudo freeze-probe" daria "comando nao encontrado": ai o nome a usar
+# e o caminho completo.
+case "$BIN_DIR" in
+  /usr/local/bin|/usr/bin|/usr/local/sbin|/usr/sbin) PROBE_AS="$PROBE" ;;
+  *) PROBE_AS="$PROBE_CMD" ;;
+esac
+probe_run="sudo $PROBE_AS"
+
+# O lancador da sonda. FREEZE_PROBE_CMD so diz a ela o nome com que foi chamada,
+# para a ajuda e as mensagens mostrarem "sudo freeze-probe" e nao o caminho no
+# lib/. Instalar nao muda permissao nenhuma: rodar continua exigindo sudo.
+cat > "$PROBE_CMD" <<LAUNCHER || die "could not write $PROBE_CMD"
+#!/usr/bin/env bash
+# gerado por install.sh - nao edite; reinstale para atualizar
+export FREEZE_PROBE_CMD="$PROBE_AS"
+exec "$TARGET_PROBE" "\$@"
+LAUNCHER
+chmod 0755 "$PROBE_CMD" || die "could not make $PROBE_CMD executable"
+
 # --- resultado -------------------------------------------------------------
 
 info "installed: $CMD"
+info "installed: $PROBE_CMD  (freeze probe - run with sudo, only when needed)"
 if [[ "$MODE" == link ]]; then
   info "           (--link mode: uses $SRC_DIR directly)"
 else
@@ -191,3 +240,6 @@ esac
 info "logs in: \$HOME/.monitor/log  (override with MONITOR_LOG_DIR)"
 info ""
 info "test with:  $NAME --version"
+
+info "freeze probe: $probe_run --check   (once, to validate on this kernel)"
+info "              $probe_run           (before the game; exits with it)"

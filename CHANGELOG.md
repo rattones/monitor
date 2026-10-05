@@ -6,10 +6,20 @@ All notable changes to this project. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the version is the
 one printed by `monitor --version`.
 
-## [Unreleased]
+## [3.6] — 2026-10-05
 
 ### Added
 
+- **`freeze-probe` command**: `install.sh` now installs the probe next to the
+  monitor (`<prefix>/bin/freeze-probe`, with `probe/` in
+  `<prefix>/lib/monitor/`), in copy and `--link` mode, and `--uninstall`
+  removes it. Installing grants nothing: it only runs when called with `sudo`.
+  Since sudo searches its `secure_path` and not the user's `PATH`, the installer
+  prints the right line, `sudo freeze-probe` under `/usr/local` or the full path
+  under `~/.local`, and the probe's help and messages use the same name. A
+  `freeze-probe` not installed by this script is not overwritten without
+  `--force`, nor removed.
+- `freeze-probe -V`: prints the monitor's version, no root needed.
 - **`probe/` subproject: main-thread freeze probe** (bpftrace, root), separate
   from the monitor, which keeps running unprivileged and unchanged.
   `sudo ./probe/freeze-probe.sh` waits for the game and writes every main-thread
@@ -22,10 +32,16 @@ one printed by `monitor --version`.
   rewrites `0x... ([unknown])` stack frames as `library.so+0xoffset`. All probe
   state lives in keyed maps, because it is read from other CPUs. See
   `probe/README.md`.
+- INSTALL and README: how to install and run the probe with sudo.
 - README: a section on the probe, the `probe/` tree, and "In practice", which
   links the investigation the tools were built for.
-- 20 tests (224 in total) for the probe launcher, with a fake `bpftrace` and a
-  fake `/proc`.
+- 20 tests for the probe launcher, with a fake `bpftrace` and a fake `/proc`,
+  and the first 15 for `install.sh` (239 in total).
+
+### Fixed
+
+- The probe's "needs root" message lost the arguments: it printed `$*` after
+  they had been consumed. It now repeats the exact command to run with sudo.
 
 ## [3.5] — 2026-09-29
 

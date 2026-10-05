@@ -12,9 +12,16 @@ timestamps line up.
 ## Usage
 
 ```bash
-sudo ./probe/freeze-probe.sh --check    # once: validates the program on your kernel
-sudo ./probe/freeze-probe.sh            # before playing: waits for dota2 to start
+sudo freeze-probe --check    # once: validates the program on your kernel
+sudo freeze-probe            # before playing: waits for dota2 to start
+freeze-probe -V              # version (the monitor's; no root needed)
 ```
+
+`freeze-probe` is installed by the monitor's `install.sh`, next to `monitor`.
+With the default `~/.local` install, sudo doesn't search your `PATH`: use
+`sudo ~/.local/bin/freeze-probe` (the installer prints the exact line), or
+install with `sudo ./install.sh --system`. Straight from a clone:
+`sudo ./probe/freeze-probe.sh`.
 
 Then play. The probe attaches when the game starts and exits when it closes.
 Output: `~/.monitor/log/dota2-YYYYMMDD-HHMMSS-probe.txt`, owned by you.
@@ -26,6 +33,7 @@ Output: `~/.monitor/log/dota2-YYYYMMDD-HHMMSS-probe.txt`, owned by you.
 | `-t MS` | freeze threshold in ms (default 500, minimum 50) |
 | `-o DIR` | output directory (default: `~/.monitor/log` of the sudo caller) |
 | `--check` | only compile and attach the probes (`bpftrace --dry-run`), then exit |
+| `-V` | version (the monitor's), no root needed |
 
 Requires `bpftrace` (tested with 0.25) and a kernel with BTF
 (`/sys/kernel/btf/vmlinux`).

@@ -333,9 +333,17 @@ monitor continua como usuário, sem mudança, e os dois gravam em
 `~/.monitor/log` no mesmo relógio local.
 
 ```bash
-sudo ./probe/freeze-probe.sh --check   # uma vez: valida o programa neste kernel
-sudo ./probe/freeze-probe.sh           # espera o dota2 (-n NOME, -p PID) e sai junto com ele
+sudo freeze-probe --check   # uma vez: valida o programa neste kernel
+sudo freeze-probe           # espera o dota2 (-n NOME, -p PID) e sai junto com ele
 ```
+
+O `install.sh` instala a sonda ao lado do `monitor`, como o comando
+`freeze-probe`. Instalar não dá privilégio nenhum: ela só roda quando você a
+chama com `sudo`. O sudo procura comandos no próprio `secure_path`, não no seu
+`PATH`, então na instalação padrão em `~/.local` use o caminho completo
+(`sudo ~/.local/bin/freeze-probe`). O instalador mostra a linha exata, e com
+`sudo ./install.sh --system` funciona o `sudo freeze-probe` direto. Do clone,
+sem instalar: `sudo ./probe/freeze-probe.sh`.
 
 Para cada parada da thread principal acima do limiar (`-t`, 500 ms por padrão),
 seja dormindo num `futex`, num `epoll_wait` ou sem fazer chamada de sistema
@@ -351,7 +359,7 @@ nenhuma, grava um bloco em `<nome>-<data>-probe.txt` com:
 Guarda também `<nome>-<data>-probe.maps`, os trechos executáveis do processo, e
 no fim troca os quadros `0x... ([unknown])` das pilhas por
 `biblioteca.so+0xdeslocamento`. Precisa do `bpftrace` (testado com 0.25) e de
-kernel com BTF. O `install.sh` não instala o `probe/`: rode do repositório.
+kernel com BTF.
 Detalhes e limites em [probe/README.pt-BR.md](probe/README.pt-BR.md).
 
 ## Idioma
@@ -380,7 +388,7 @@ Os comentários do código seguem em português.
 
 ```
 monitor.sh              entrada: carrega lib/, monta main()
-install.sh              instala/remove o comando no sistema
+install.sh              instala/remove os comandos (monitor e freeze-probe)
 lib/
 ├── core.sh             die, run_source, FIFOs, traps, espera
 ├── backend.sh          contrato dos backends de GPU + autodetecção
@@ -415,7 +423,7 @@ que falta, em vez de falhar no meio de uma coleta.
 ## Testes
 
 ```bash
-./tests/run-tests.sh          # 224 testes, cerca de dois minutos
+./tests/run-tests.sh          # 239 testes, cerca de dois minutos
 ./tests/run-tests.sh -v amd   # filtra e mostra a saída das falhas
 ```
 

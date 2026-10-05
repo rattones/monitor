@@ -51,8 +51,17 @@ quebra nada.
 
 ```
 <prefixo>/bin/monitor          o comando (um lançador de 3 linhas)
-<prefixo>/lib/monitor/         o monitor.sh e o lib/
+<prefixo>/bin/freeze-probe     a sonda de travadas (lançador de 3 linhas; roda com sudo)
+<prefixo>/lib/monitor/         o monitor.sh, o lib/ e o probe/
 ```
+
+O `freeze-probe` é instalado junto com o monitor, mas estar instalado não dá
+privilégio nenhum: ele só roda quando você o chama com `sudo`, quando achar
+necessário. Precisa do `bpftrace` (`sudo apt install bpftrace`) e de kernel com
+BTF; o monitor não precisa. O sudo procura comandos no `secure_path` dele, não
+no seu `PATH`: instalado em `~/.local`, rode `sudo ~/.local/bin/freeze-probe`;
+com `--system`, `sudo freeze-probe` funciona direto. O instalador mostra a linha
+certa. Ver [probe/README.pt-BR.md](probe/README.pt-BR.md).
 
 O comando em `bin/` é um lançador que aponta `MONITOR_LIB_DIR` para o `lib/`
 instalado e faz `exec` no script real. O `exec` importa: sem ele sobraria um
@@ -89,6 +98,9 @@ nenhuma.
 ./install.sh --uninstall               # de ~/.local
 sudo ./install.sh --uninstall --system # de /usr/local
 ```
+
+Os dois comandos, `monitor` e `freeze-probe`, são removidos. Um `freeze-probe`
+que não foi instalado por este script fica onde está.
 
 **Seus CSVs são mantidos.** Eles ficam em `~/.monitor/log`, fora de qualquer
 coisa que o instalador toque. Apague você mesmo, se quiser.
